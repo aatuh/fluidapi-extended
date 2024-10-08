@@ -1,4 +1,4 @@
-module fluidapi-extended
+module github.com/pakkasys/fluidapi-extended
 
 go 1.23.0
 
@@ -7,7 +7,6 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pakkasys/fluidapi v0.1.0
-	github.com/pakkasys/fluidapi-extended v0.1.0
 	github.com/stretchr/testify v1.9.0
 )
 

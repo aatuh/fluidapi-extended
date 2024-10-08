@@ -20,8 +20,6 @@ github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyua
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/pakkasys/fluidapi v0.1.0 h1:Ip6yr+YyDnMTd8dnGbvHlMPSBk6wIuOfApUXJLUSlX4=
 github.com/pakkasys/fluidapi v0.1.0/go.mod h1:F8l/hooJO5DCRooRe/t5TFHsOGMomJBgVM1E0JVqMMI=
-github.com/pakkasys/fluidapi-extended v0.1.0 h1:yX+6OTjCHtMOMV/gMf2C/sEWQ47PSSrFJ8rQBDna0ow=
-github.com/pakkasys/fluidapi-extended v0.1.0/go.mod h1:OvmSNqJ0qT3vMOharOFafKpobuWy5stz5hRgwAEFjRM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.5.2 h1:xuMeJ0Sdp5ZMRXx/aWO6RZxdr3beISkG5/G/aIRr3pY=
