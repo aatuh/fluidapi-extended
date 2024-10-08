@@ -1,8 +1,9 @@
 package outputprocessor
 
 import (
-	"fluid_api_flock/util/auxiliary/output"
 	"net/http"
+
+	"github.com/pakkasys/fluidapi-extended/output"
 )
 
 type ILogger interface {

@@ -2,8 +2,9 @@ package sendfunc
 
 import (
 	"errors"
-	"fluid_api_flock/util/auxiliary/output"
-	"fluid_api_flock/util/auxiliary/urlencoder"
+
+	"github.com/pakkasys/fluidapi-extended/output"
+	"github.com/pakkasys/fluidapi-extended/urlencoder"
 
 	"github.com/pakkasys/fluidapi/core/client"
 	"github.com/pakkasys/fluidapi/endpoint/runner"
