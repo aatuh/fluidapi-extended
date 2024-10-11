@@ -14,15 +14,7 @@ type ILogger interface {
 type LoggerFn func(r *http.Request) ILogger
 
 type Processor struct {
-	loggerFn LoggerFn
-}
-
-func NewProcessor(
-	loggerFn LoggerFn,
-) Processor {
-	return Processor{
-		loggerFn: loggerFn,
-	}
+	LoggerFn LoggerFn
 }
 
 func (p Processor) ProcessOutput(
@@ -30,27 +22,18 @@ func (p Processor) ProcessOutput(
 	r *http.Request,
 	out any,
 	outError error,
-	statusCode int,
+	status int,
 ) error {
-	output, err := output.JSON(
-		r.Context(),
-		w,
-		r,
-		out,
-		outError,
-		statusCode,
-	)
+	output, err := output.JSON(r.Context(), w, r, out, outError, status)
 	if err != nil {
-		p.loggerFn(r).Error(
-			"Error handling output JSON: %s",
-			err,
-		)
-
+		if p.LoggerFn != nil {
+			p.LoggerFn(r).Error("Error handling output JSON: %s", err)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return err
 	}
-
-	p.loggerFn(r).Trace("Client output", output)
-
+	if p.LoggerFn != nil {
+		p.LoggerFn(r).Trace("Client output", output)
+	}
 	return nil
 }

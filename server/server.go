@@ -15,7 +15,7 @@ type ILogger interface {
 
 type LoggerFn func(r *http.Request) ILogger
 
-func Mustserver(endpoints []api.Endpoint, port int, loggerFn LoggerFn) {
+func MustStart(endpoints []api.Endpoint, port int, loggerFn LoggerFn) {
 	err := server.HTTPServer(
 		server.DefaultHTTPServer(
 			port,
