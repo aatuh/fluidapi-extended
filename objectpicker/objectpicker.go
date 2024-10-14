@@ -31,12 +31,14 @@ type URLDecoder interface {
 }
 
 const (
-	sourceTag    = "source"
-	jsonTag      = "json"
-	sourceURL    = "url"
-	sourceBody   = "body"
-	sourceHeader = "headers"
-	sourceCookie = "cookies"
+	sourceTag     = "source"
+	jsonTag       = "json"
+	sourceURL     = "url"
+	sourceBody    = "body"
+	sourceHeader  = "header"
+	sourceHeaders = "headers"
+	sourceCookie  = "cookie"
+	sourceCookies = "cookies"
 )
 
 var (
@@ -301,11 +303,11 @@ func (o *ObjectPicker[T]) getValueFromSource(
 		if val, exists := bodyData[field]; exists {
 			return val
 		}
-	case sourceHeader:
+	case sourceHeader, sourceHeaders:
 		if val := r.Header.Get(field); val != "" {
 			return val
 		}
-	case sourceCookie:
+	case sourceCookie, sourceCookies:
 		if cookie, err := r.Cookie(field); err == nil {
 			return cookie.Value
 		}
