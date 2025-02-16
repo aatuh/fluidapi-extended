@@ -1,4 +1,4 @@
-package objectpicker
+package util
 
 import (
 	"bytes"
@@ -12,12 +12,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pakkasys/fluidapi/core/api"
-
 	"github.com/mitchellh/mapstructure"
+	"github.com/pakkasys/fluidapi/core"
 )
 
-var InvalidInputError = api.NewError[any]("INVALID_INPUT")
+var InvalidInputError = core.NewAPIError("INVALID_INPUT")
 
 type FieldConfig map[string][]string
 type StructRegistry map[reflect.Type]FieldConfig
@@ -27,12 +26,12 @@ type PickedObjects map[reflect.Type]any
 
 // URLDecoder interface for decoding URL values.
 type URLDecoder interface {
-	DecodeURL(values url.Values) (map[string]any, error)
+	Decode(values url.Values) (map[string]any, error)
 }
 
 const (
 	sourceTag     = "source"
-	jsonTag       = "json"
+	structTag     = "json"
 	sourceURL     = "url"
 	sourceBody    = "body"
 	sourceHeader  = "header"
@@ -84,7 +83,7 @@ func (o *ObjectPicker[T]) PickObject(
 	var urlData URLData
 	if o.needsSource(fieldConfig, sourceURL) {
 		var err error
-		urlData, err = o.urlDecoder.DecodeURL(r.URL.Query())
+		urlData, err = o.urlDecoder.Decode(r.URL.Query())
 		if err != nil {
 			return nil, InvalidInputError
 		}
@@ -165,7 +164,7 @@ func (o *ObjectPicker[T]) pickObjectForObj(
 	decoderConfig := &mapstructure.DecoderConfig{
 		Metadata:         nil,
 		Result:           ptr.Interface(),
-		TagName:          jsonTag,
+		TagName:          structTag,
 		WeaklyTypedInput: true,
 	}
 
@@ -235,7 +234,7 @@ func (o *ObjectPicker[T]) buildFieldConfig(
 	config := make(FieldConfig)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		fieldName := field.Tag.Get(jsonTag)
+		fieldName := field.Tag.Get(structTag)
 		if fieldName == "" {
 			continue
 		}
@@ -267,18 +266,18 @@ func (o *ObjectPicker[T]) populateValuesFromSources(
 
 	for i := 0; i < val.NumField(); i++ {
 		typeField := typ.Field(i)
-		jsonTag := typeField.Tag.Get(jsonTag)
-		if sources, ok := config[jsonTag]; ok {
+		structTag := typeField.Tag.Get(structTag)
+		if sources, ok := config[structTag]; ok {
 			for _, source := range sources {
 				fieldValue := o.getValueFromSource(
 					request,
-					jsonTag,
+					structTag,
 					source,
 					urlData,
 					bodyData,
 				)
 				if fieldValue != nil && fieldValue != "" {
-					valueMap[jsonTag] = fieldValue
+					valueMap[structTag] = fieldValue
 				}
 			}
 		}
@@ -313,7 +312,7 @@ func (o *ObjectPicker[T]) getValueFromSource(
 		}
 	default:
 		if len(source) != 0 {
-			panic(fmt.Sprintf("unknown input source: %s", source))
+			panic(fmt.Sprintf("Unknown input source: %s", source))
 		}
 	}
 

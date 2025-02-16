@@ -1,4 +1,4 @@
-package urlencoder
+package util
 
 import (
 	"fmt"
@@ -19,46 +19,43 @@ const (
 // (base 10) and "]" e.g. "mySlice[0]" matches as "mySlice" and "0"
 const sliceRegexp = `(\w+)\[(\d+)\]`
 
-// MinSlices keeps track of slice elements with minimal length
-type minSlice struct {
-	elements map[int]any
+// Tag for JSON encoding
+const jsonTag = "json"
+
+type URLEncoder struct{}
+
+func NewURLEncoder() *URLEncoder {
+	return &URLEncoder{}
 }
 
-func newMinSlice() *minSlice {
-	return &minSlice{elements: make(map[int]any)}
-}
-
-func (s *minSlice) set(index int, value any) {
-	s.elements[index] = value
-}
-
-func (s *minSlice) get(index int) (any, bool) {
-	value, exists := s.elements[index]
-	return value, exists
-}
-
-func (s *minSlice) toSlice() []any {
-	slice := make([]any, 0, len(s.elements))
-	for _, value := range s.elements {
-		slice = append(slice, value)
-	}
-	return slice
-}
-
-// Converts all MinSlice instances in the map to regular slices recursively.
-func convertMinSlicesToRegularSlices(data map[string]any) {
+// Encodes data into URL values to support the following syntax:
+// someKey=value
+// someStruct.field=value
+// someSlice[0]=value
+// someStruct[0].key=value
+//
+// It will preserve the order of the fields in the struct.
+// It will return an error if a "json" tag is not found for a struct field.
+//
+// Parameters:
+//   - data: Data to encode
+//
+// Returns:
+//   - url.Values: URL values
+//   - error: Error
+func (e URLEncoder) Encode(data map[string]any) (url.Values, error) {
+	values := url.Values{}
 	for key, value := range data {
-		switch v := value.(type) {
-		case *minSlice:
-			data[key] = v.toSlice()
-		case map[string]any:
-			convertMinSlicesToRegularSlices(v)
+		err := encodeURL(&values, key, reflect.ValueOf(value))
+		if err != nil {
+			return nil, err
 		}
 	}
+
+	return values, nil
 }
 
-// TODO: Test order preservation
-// Decodes URL from the following syntax:
+// Decodes data from URL values to support the following syntax:
 // someKey=value
 // someStruct.field=value
 // someSlice[0]=value
@@ -66,8 +63,18 @@ func convertMinSlicesToRegularSlices(data map[string]any) {
 //
 // It will preserve the order of the fields in the struct.
 //
+// Parameters:
 //   - values: URL values
-func DecodeURL(values url.Values) (map[string]any, error) {
+//
+// Returns:
+//   - Decoded data as a map
+//   - Error if decoding fails
+func (e URLEncoder) Decode(values url.Values) (map[string]any, error) {
+	return decodeURL(values)
+}
+
+// TODO: Test order preservation
+func decodeURL(values url.Values) (map[string]any, error) {
 	urlData := make(map[string]any)
 	depth := 0
 	for key, value := range values {
@@ -82,19 +89,7 @@ func DecodeURL(values url.Values) (map[string]any, error) {
 }
 
 // TODO: Test order preservation
-// Encodes URL into the following syntax:
-// someKey=value
-// someStruct.field=value
-// someSlice[0]=value
-// someStruct[0].key=value
-//
-// It will preserve the order of the fields in the struct.
-// It will return an error if a json tag is not found for a struct field.
-//
-//   - values: URL values
-//   - fieldTag: json tag of the struct field
-//   - v: value of the struct field
-func EncodeURL(values *url.Values, fieldTag string, v reflect.Value) error {
+func encodeURL(values *url.Values, fieldTag string, v reflect.Value) error {
 	return encodeValue(values, fieldTag, v)
 }
 
@@ -182,7 +177,7 @@ func encodeStructField(
 		return nil
 	}
 
-	newFieldTag := fieldType.Tag.Get("json")
+	newFieldTag := fieldType.Tag.Get(jsonTag)
 	if newFieldTag == "-" || newFieldTag == "" {
 		return fmt.Errorf(
 			"cannot encode field %q because it has no json tag",
@@ -345,4 +340,42 @@ func getOrCreateSlice(
 		)
 	}
 	return minSlice, nil
+}
+
+// MinSlices keeps track of slice elements with minimal length
+type minSlice struct {
+	elements map[int]any
+}
+
+func newMinSlice() *minSlice {
+	return &minSlice{elements: make(map[int]any)}
+}
+
+func (s *minSlice) set(index int, value any) {
+	s.elements[index] = value
+}
+
+func (s *minSlice) get(index int) (any, bool) {
+	value, exists := s.elements[index]
+	return value, exists
+}
+
+func (s *minSlice) toSlice() []any {
+	slice := make([]any, 0, len(s.elements))
+	for _, value := range s.elements {
+		slice = append(slice, value)
+	}
+	return slice
+}
+
+// Converts all MinSlice instances in the map to regular slices recursively.
+func convertMinSlicesToRegularSlices(data map[string]any) {
+	for key, value := range data {
+		switch v := value.(type) {
+		case *minSlice:
+			data[key] = v.toSlice()
+		case map[string]any:
+			convertMinSlicesToRegularSlices(v)
+		}
+	}
 }

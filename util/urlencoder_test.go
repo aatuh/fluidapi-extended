@@ -1,4 +1,4 @@
-package urlencoder
+package util
 
 import (
 	"fmt"
@@ -69,7 +69,7 @@ func TestDecodeURL(t *testing.T) {
 	values := url.Values{}
 	values.Set("simpleKey", "simpleValue")
 
-	result, err := DecodeURL(values)
+	result, err := decodeURL(values)
 	assert.Nil(t, err)
 
 	expected := map[string]any{
@@ -81,7 +81,7 @@ func TestDecodeURL(t *testing.T) {
 	values = url.Values{}
 	values.Set("level1.level2.key", "nestedValue")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 
 	expected = map[string]any{
@@ -98,7 +98,7 @@ func TestDecodeURL(t *testing.T) {
 	values.Set("mySlice[0].key", "value")
 	values.Set("mySlice[1].key", "value")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 
 	expected = map[string]any{
@@ -114,7 +114,7 @@ func TestDecodeURL(t *testing.T) {
 	values.Set("mySlice[0]", "sliceValue1")
 	values.Set("mySlice[1]", "sliceValue2")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 
 	expected = map[string]any{"mySlice": []any{"sliceValue1", "sliceValue2"}}
@@ -125,7 +125,7 @@ func TestDecodeURL(t *testing.T) {
 	values.Set("level1.level2.key", "nestedValue")
 	values.Set("level1.level2.key", "newValue")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 
 	expected = map[string]any{
@@ -141,7 +141,7 @@ func TestDecodeURL(t *testing.T) {
 	values = url.Values{}
 	values.Set("invalidSlice[abc]", "invalidValue")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 	expected = map[string]any{"invalidSlice[abc]": "invalidValue"}
 	assert.Equal(t, expected, result)
@@ -152,7 +152,7 @@ func TestDecodeURL(t *testing.T) {
 	values.Set("complex.level1[1]", "value2")
 	values.Set("complex.level2.key3", "value3")
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.Nil(t, err)
 
 	expected = map[string]any{
@@ -176,7 +176,7 @@ func TestDecodeURL(t *testing.T) {
 	values.Set("myMap.key", "mapValue")    // Initializes myMap as a map
 	values.Set("myMap[0]", "invalidValue") // Treat myMap as a slice, error
 
-	result, err = DecodeURL(values)
+	result, err = decodeURL(values)
 	assert.NotNil(t, err)
 	assert.Nil(t, result)
 }

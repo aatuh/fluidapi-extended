@@ -1,15 +1,25 @@
-package validation
+package util
 
 import (
 	"fmt"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/pakkasys/fluidapi/endpoint/middleware/inputlogic"
 )
 
 const (
 	errorFmt = "Validation failed on rule %q"
 )
+
+// FieldError represents a field-level validation error
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ValidationErrorData contains a list of field-level validation errors
+type ValidationErrorData struct {
+	Errors []FieldError `json:"errors"`
+}
 
 // Validation is a validator using the validator/v10 package.
 type Validation struct {
@@ -24,7 +34,7 @@ func NewValidation() *Validation {
 }
 
 // Validate validates an object and returns a slice of FieldError if fails.
-func (vs *Validation) Validate(obj any) []inputlogic.FieldError {
+func (vs *Validation) Validate(obj any) []FieldError {
 	err := vs.validate.Struct(obj)
 	if err != nil {
 		return vs.parseValidationErrors(err)
@@ -33,10 +43,10 @@ func (vs *Validation) Validate(obj any) []inputlogic.FieldError {
 }
 
 // parseValidationErrors parses validation errors into a slice of FieldError.
-func (vs *Validation) parseValidationErrors(err error) []inputlogic.FieldError {
+func (vs *Validation) parseValidationErrors(err error) []FieldError {
 	validationErrors, ok := err.(validator.ValidationErrors)
 	if !ok {
-		return []inputlogic.FieldError{
+		return []FieldError{
 			{
 				Field:   "unknown",
 				Message: err.Error(),
@@ -44,9 +54,9 @@ func (vs *Validation) parseValidationErrors(err error) []inputlogic.FieldError {
 		}
 	}
 
-	var fieldErrors []inputlogic.FieldError
+	var fieldErrors []FieldError
 	for _, valErr := range validationErrors {
-		fieldErrors = append(fieldErrors, inputlogic.FieldError{
+		fieldErrors = append(fieldErrors, FieldError{
 			Field:   valErr.Field(),
 			Message: fmt.Sprintf(errorFmt, valErr.Tag()),
 		})
