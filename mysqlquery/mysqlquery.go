@@ -169,11 +169,31 @@ func Count(
 	dbOptions *database.CountOptions,
 ) (string, []any) {
 	whereClause, whereValues := whereClause(dbOptions.Selectors)
+	joinStmt := joinClause(dbOptions.Joins)
 
+	if dbOptions.Page != nil {
+		// Build the inner query with pagination.
+		innerQuery := strings.Trim(fmt.Sprintf(
+			"SELECT * FROM `%s` %s %s %s",
+			tableName,
+			joinStmt,
+			whereClause,
+			GetLimitOffsetClauseFromPage(dbOptions.Page),
+		), " ")
+
+		// Wrap the inner query in an outer COUNT(*) query.
+		query := fmt.Sprintf(
+			"SELECT COUNT(*) FROM (%s) AS limited_result",
+			innerQuery,
+		)
+		return query, whereValues
+	}
+
+	// Otherwise, build a simple COUNT query without pagination.
 	query := strings.Trim(fmt.Sprintf(
 		"SELECT COUNT(*) FROM `%s` %s %s",
 		tableName,
-		joinClause(dbOptions.Joins),
+		joinStmt,
 		whereClause,
 	), " ")
 

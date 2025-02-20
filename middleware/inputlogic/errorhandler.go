@@ -41,7 +41,7 @@ func (e *ErrorHandler) getExpectedError(
 	expectedErrs []ExpectedError,
 ) *ExpectedError {
 	for i := range expectedErrs {
-		if apiError.ID() == expectedErrs[i].ID {
+		if apiError.ID == expectedErrs[i].ID {
 			return &expectedErrs[i]
 		}
 	}
@@ -69,10 +69,16 @@ func (e *ExpectedError) MaskAPIError(
 
 	var useData any
 	if e.PublicData {
-		useData = apiError.Data()
+		useData = apiError.Data
 	} else {
 		useData = nil
 	}
 
 	return e.Status, core.NewAPIError(useErrorID).WithData(useData)
+}
+
+type ExpectedErrors []ExpectedError
+
+func (e ExpectedErrors) With(errs ...ExpectedError) ExpectedErrors {
+	return append(e, errs...)
 }

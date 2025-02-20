@@ -7,27 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"reflect"
-	"slices"
-	"strings"
-	"sync"
+	"strconv"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/pakkasys/fluidapi/core"
 )
 
 var InvalidInputError = core.NewAPIError("INVALID_INPUT")
-
-type FieldConfig map[string][]string
-type StructRegistry map[reflect.Type]FieldConfig
-type BodyData map[string]any
-type URLData map[string]any
-type PickedObjects map[reflect.Type]any
-
-// URLDecoder interface for decoding URL values.
-type URLDecoder interface {
-	Decode(values url.Values) (map[string]any, error)
-}
 
 const (
 	sourceTag     = "source"
@@ -40,253 +25,85 @@ const (
 	sourceCookies = "cookies"
 )
 
-var (
-	structRegistry = make(StructRegistry)
-	registryMutex  = sync.RWMutex{}
-)
+type BodyData map[string]any
+type URLData map[string]any
 
-type ObjectPicker[T any] struct {
-	urlDecoder URLDecoder
+// URLDecoder interface for decoding URL values.
+type URLDecoder interface {
+	Decode(values url.Values) (map[string]any, error)
 }
 
-func NewObjectPicker[T any](urlDecoder URLDecoder) *ObjectPicker[T] {
-	return &ObjectPicker[T]{
-		urlDecoder: urlDecoder,
+// MapFieldConfig lets define the mapping for extracting a map input.
+//   - Source: if set at a level, it will override any field-level sources in
+//     the children.
+//   - ExpectedType: if set for a leaf field, the value is converted to that
+//     type. For example, "int64", "int", "float64", etc.
+type MapFieldConfig struct {
+	Source       string
+	ExpectedType string
+	DefaultValue any
+	Optional     bool
+	Fields       map[string]*MapFieldConfig
+}
+
+// ObjectPicker is generic over T which may be a struct or a map.
+type ObjectPicker struct {
+	urlDecoder    URLDecoder
+	conversionMap map[string]func(any) any
+}
+
+// NewObjectPicker returns a new ObjectPicker.
+func NewObjectPicker(
+	urlDecoder URLDecoder,
+	conversionMap map[string]func(any) any,
+) *ObjectPicker {
+	return &ObjectPicker{
+		urlDecoder:    urlDecoder,
+		conversionMap: conversionMap,
 	}
 }
 
-func (o *ObjectPicker[T]) PickObject(
+// PickMap extracts a map[string]any from the request based on the provided
+// MapFieldConfig. It supports both nested and flat extraction.
+// If a source is set at a higher (parent) level, then child fields will use
+// that source.
+func (o *ObjectPicker) PickMap(
 	r *http.Request,
-	w http.ResponseWriter,
-	obj T,
-) (*T, error) {
-	typ := reflect.TypeOf(obj)
-	fieldConfig := structRegistry[typ]
-
-	if fieldConfig == nil {
-		o.mustUpdateObjectRegistry(
-			[]any{obj},
-			o.determineDefaultSource(r.Method),
-		)
-		fieldConfig = structRegistry[typ]
-	}
-
-	var bodyData BodyData
-	if o.needsSource(fieldConfig, sourceBody) {
-		var err error
-		bodyData, err = o.bodyToMap(r)
-		if err != nil {
-			return nil, InvalidInputError
-		}
-	}
-
-	var urlData URLData
-	if o.needsSource(fieldConfig, sourceURL) {
-		var err error
-		urlData, err = o.urlDecoder.Decode(r.URL.Query())
-		if err != nil {
-			return nil, InvalidInputError
-		}
-	}
-
-	pickedObject, err := o.pickObjectForObj(
-		typ,
-		structRegistry[typ],
-		urlData,
-		bodyData,
-		r,
-	)
+	config *MapFieldConfig,
+) (map[string]any, error) {
+	// Load body and URL data since a map may draw from either.
+	bodyData, err := o.bodyToMap(r)
 	if err != nil {
-		return nil, err
+		return nil, InvalidInputError
+	}
+	urlData, err := o.urlDecoder.Decode(r.URL.Query())
+	if err != nil {
+		return nil, InvalidInputError
 	}
 
-	castObj, ok := pickedObject.(T)
-	if !ok {
-		return nil, fmt.Errorf(
-			"failed to cast picked object: %v",
-			pickedObject,
-		)
-	}
-	return &castObj, nil
+	// Do not override top-level if not explicitly provided.
+	topSource := config.Source
+	result := o.extractMap(config, topSource, r, urlData, bodyData)
+	return result, nil
 }
 
-func (o *ObjectPicker[T]) determineDefaultSource(
+// determineDefaultSource selects the default source based on HTTP method.
+func (o *ObjectPicker) determineDefaultSource(
 	httpMethod string,
 ) string {
 	switch httpMethod {
 	case http.MethodGet:
 		return sourceURL
-	case http.MethodPost:
-		return sourceBody
-	case http.MethodPut:
-		return sourceBody
-	case http.MethodPatch:
-		return sourceBody
-	case http.MethodDelete:
+	case http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete:
 		return sourceBody
 	default:
 		return sourceBody
 	}
 }
 
-func (o *ObjectPicker[T]) mustUpdateObjectRegistry(
-	objectSamples []any,
-	defaultSource string,
-) {
-	var err error
-	structRegistry, err = o.addToStructRegistry(
-		structRegistry,
-		objectSamples,
-		defaultSource,
-	)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to add to struct registry: %v", err))
-	}
-}
-
-func (o *ObjectPicker[T]) pickObjectForObj(
-	typ reflect.Type,
-	fieldConfig FieldConfig,
-	urlData URLData,
-	bodyData BodyData,
-	request *http.Request,
-) (any, error) {
-	ptr := reflect.New(typ)
-
-	valueMap := o.populateValuesFromSources(
-		ptr.Interface(),
-		fieldConfig,
-		urlData,
-		bodyData,
-		request,
-	)
-
-	decoderConfig := &mapstructure.DecoderConfig{
-		Metadata:         nil,
-		Result:           ptr.Interface(),
-		TagName:          structTag,
-		WeaklyTypedInput: true,
-	}
-
-	decoder, err := mapstructure.NewDecoder(decoderConfig)
-	if err != nil {
-		return nil, InvalidInputError
-	}
-
-	if err := decoder.Decode(valueMap); err != nil {
-		return nil, InvalidInputError
-	}
-
-	return ptr.Elem().Interface(), nil
-}
-
-func (o *ObjectPicker[T]) addToStructRegistry(
-	structRegistry StructRegistry,
-	pickedObjects []any,
-	defaultSource string,
-) (StructRegistry, error) {
-	registryMutex.Lock()
-	defer registryMutex.Unlock()
-
-	for i := range pickedObjects {
-		pickedObject := pickedObjects[i]
-		objectType := reflect.TypeOf(pickedObject)
-
-		if objectType.Kind() == reflect.Ptr {
-			objectType = objectType.Elem()
-		}
-
-		fieldConfig, err := o.buildFieldConfig(pickedObject, defaultSource)
-		if err != nil {
-			return nil, err
-		}
-
-		if _, ok := structRegistry[objectType]; ok {
-			for fieldName, sources := range fieldConfig {
-				fieldConfig[fieldName] = append(
-					structRegistry[objectType][fieldName],
-					sources...,
-				)
-			}
-		} else {
-			structRegistry[objectType] = fieldConfig
-		}
-	}
-
-	return structRegistry, nil
-}
-
-func (o *ObjectPicker[T]) buildFieldConfig(
-	obj any,
-	defaultSource string,
-) (FieldConfig, error) {
-	typ := reflect.TypeOf(obj)
-	if typ == nil {
-		return nil, fmt.Errorf("nil type received")
-	}
-	if typ.Kind() == reflect.Ptr {
-		typ = typ.Elem()
-	}
-	if typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("expected a struct type but got %s", typ.Kind())
-	}
-
-	config := make(FieldConfig)
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		fieldName := field.Tag.Get(structTag)
-		if fieldName == "" {
-			continue
-		}
-
-		sourceTagValue := field.Tag.Get(sourceTag)
-		var sources []string
-		if sourceTagValue == "" {
-			sources = []string{defaultSource}
-		} else {
-			sources = strings.Split(sourceTagValue, ",")
-		}
-
-		config[fieldName] = sources
-	}
-
-	return config, nil
-}
-
-func (o *ObjectPicker[T]) populateValuesFromSources(
-	obj any,
-	config FieldConfig,
-	urlData URLData,
-	bodyData BodyData,
-	request *http.Request,
-) map[string]any {
-	val := reflect.ValueOf(obj).Elem()
-	typ := val.Type()
-	valueMap := make(map[string]any)
-
-	for i := 0; i < val.NumField(); i++ {
-		typeField := typ.Field(i)
-		structTag := typeField.Tag.Get(structTag)
-		if sources, ok := config[structTag]; ok {
-			for _, source := range sources {
-				fieldValue := o.getValueFromSource(
-					request,
-					structTag,
-					source,
-					urlData,
-					bodyData,
-				)
-				if fieldValue != nil && fieldValue != "" {
-					valueMap[structTag] = fieldValue
-				}
-			}
-		}
-	}
-
-	return valueMap
-}
-
-func (o *ObjectPicker[T]) getValueFromSource(
+// getValueFromSource retrieves a value for a field from a specific source.
+func (o *ObjectPicker) getValueFromSource(
 	r *http.Request,
 	field string,
 	source string,
@@ -315,22 +132,11 @@ func (o *ObjectPicker[T]) getValueFromSource(
 			panic(fmt.Sprintf("Unknown input source: %s", source))
 		}
 	}
-
 	return ""
 }
 
-func (o *ObjectPicker[T]) needsSource(config FieldConfig, source string) bool {
-	needsBody := false
-	for _, sources := range config {
-		if slices.Contains(sources, source) {
-			needsBody = true
-			break
-		}
-	}
-	return needsBody
-}
-
-func (o *ObjectPicker[T]) bodyToMap(r *http.Request) (BodyData, error) {
+// bodyToMap decodes the request body (if any) into a map.
+func (o *ObjectPicker) bodyToMap(r *http.Request) (BodyData, error) {
 	body, err := o.getBody(r)
 	if err != nil {
 		return nil, err
@@ -341,21 +147,258 @@ func (o *ObjectPicker[T]) bodyToMap(r *http.Request) (BodyData, error) {
 
 	var m BodyData
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber() // for big integers
+	decoder.UseNumber() // to preserve numeric precision
 	if err = decoder.Decode(&m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func (o *ObjectPicker[T]) getBody(request *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(request.Body)
+// getBody reads and restores the request body.
+func (o *ObjectPicker) getBody(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
-
-	defer request.Body.Close()
-	request.Body = io.NopCloser(bytes.NewBuffer(body))
-
+	defer r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
 	return body, nil
+}
+
+// extractMap recursively extracts fields from the request data using a config.
+// The effective source is determined as follows:
+//   - If a parentSource was explicitly provided (non-empty), it takes
+//     precedence.
+//   - Else if the field defines a source, use that.
+//   - Otherwise, use the default source determined by the request.
+//
+// extractMap recursively extracts fields from the request data using a config.
+func (o *ObjectPicker) extractMap(
+	config *MapFieldConfig,
+	parentSource string,
+	r *http.Request,
+	urlData URLData,
+	bodyData BodyData,
+) map[string]any {
+	res := make(map[string]any)
+	if config.Fields == nil {
+		return res
+	}
+
+	for key, fieldCfg := range config.Fields {
+		// Determine effectiveSource for this field.
+		var effectiveSource string
+		if parentSource != "" {
+			// Parent explicitly defined a source; always use that.
+			effectiveSource = parentSource
+		} else if fieldCfg.Source != "" {
+			// No parent's source, but the field itself defines one.
+			effectiveSource = fieldCfg.Source
+		} else {
+			// No parent's source and none on the field; use the default one.
+			effectiveSource = o.determineDefaultSource(r.Method)
+		}
+
+		if fieldCfg.Fields != nil {
+			// Process nested fields.
+			raw := o.getValueFromSource(
+				r,
+				key,
+				effectiveSource,
+				urlData,
+				bodyData,
+			)
+			if m, ok := raw.(map[string]any); ok {
+				res[key] = o.extractMapFromRaw(m, fieldCfg, effectiveSource)
+			} else {
+				// Fall back to flat composite keys (e.g. "parent.child")
+				nested := make(map[string]any)
+				for subKey := range fieldCfg.Fields {
+					compositeKey := key + "." + subKey
+					val := o.getValueFromSource(
+						r,
+						compositeKey,
+						effectiveSource,
+						urlData,
+						bodyData,
+					)
+					val = convertValue(
+						val,
+						fieldCfg.Fields[subKey].ExpectedType,
+						o.conversionMap,
+					)
+					// If value is missing and field is optional, skip it.
+					if (val == nil || val == "") &&
+						fieldCfg.Fields[subKey].Optional {
+						continue
+					}
+					// If value is missing, try default value.
+					if (val == nil || val == "") &&
+						fieldCfg.Fields[subKey].DefaultValue != nil {
+						val = fieldCfg.Fields[subKey].DefaultValue
+					}
+					if val != nil && val != "" {
+						nested[subKey] = val
+					}
+				}
+				// Only add the nested object if it is not empty.
+				if len(nested) > 0 {
+					res[key] = nested
+				}
+			}
+		} else {
+			// Leaf field.
+			val := o.getValueFromSource(
+				r,
+				key,
+				effectiveSource,
+				urlData,
+				bodyData,
+			)
+			// If value is missing and the field is optional, skip it.
+			if (val == nil || val == "") && fieldCfg.Optional {
+				continue
+			}
+			// If value is missing, check for a default value.
+			if (val == nil || val == "") && fieldCfg.DefaultValue != nil {
+				val = fieldCfg.DefaultValue
+			} else {
+				// Otherwise convert the value as needed.
+				val = convertValue(val, fieldCfg.ExpectedType, o.conversionMap)
+			}
+			if val != nil && val != "" {
+				res[key] = val
+			}
+		}
+	}
+	return res
+}
+
+// extractMapFromRaw applies nested config on an already parsed raw map.
+func (o *ObjectPicker) extractMapFromRaw(
+	raw map[string]any,
+	config *MapFieldConfig,
+	parentSource string,
+) map[string]any {
+	res := make(map[string]any)
+	for key, fieldCfg := range config.Fields {
+		if fieldCfg.Fields != nil {
+			if subRaw, ok := raw[key].(map[string]any); ok {
+				nested := o.extractMapFromRaw(subRaw, fieldCfg, parentSource)
+				// Only assign if not empty or if a default value is set.
+				if len(nested) > 0 {
+					res[key] = nested
+				}
+			} else {
+				// If nested data is missing and the field is not optional,
+				// you may assign a default value if provided.
+				if !fieldCfg.Optional && fieldCfg.DefaultValue != nil {
+					res[key] = fieldCfg.DefaultValue
+				}
+			}
+		} else {
+			if val, ok := raw[key]; ok {
+				res[key] = convertValue(
+					val,
+					fieldCfg.ExpectedType,
+					o.conversionMap,
+				)
+			} else {
+				// If the field is not optional and has a default, set it.
+				if !fieldCfg.Optional && fieldCfg.DefaultValue != nil {
+					res[key] = fieldCfg.DefaultValue
+				}
+			}
+		}
+	}
+	return res
+}
+
+// convertValue converts a value to the expected type if needed.
+// If a conversion function exists in convMap for the expectedType,
+// it is applied.
+func convertValue(
+	val any,
+	expectedType string,
+	convMap map[string]func(any) any,
+) any {
+	if expectedType == "" {
+		return val
+	}
+
+	// Check for a custom conversion function in the global conversion map.
+	if convMap != nil {
+		if convFunc, ok := convMap[expectedType]; ok {
+			if converted := convFunc(val); converted != nil {
+				return converted
+			}
+		}
+	}
+
+	// Attempt to convert based on the expected type.
+	switch expectedType {
+	case "int64":
+		// Check if already int64.
+		if v, ok := val.(int64); ok {
+			return v
+		}
+		// Handle json.Number.
+		if num, ok := val.(json.Number); ok {
+			if intVal, err := num.Int64(); err == nil {
+				return intVal
+			}
+		}
+		// Handle float64.
+		if f, ok := val.(float64); ok {
+			return int64(f)
+		}
+		// Handle string.
+		if s, ok := val.(string); ok {
+			if intVal, err := strconv.ParseInt(s, 10, 64); err == nil {
+				return intVal
+			}
+		}
+	case "int":
+		// Check if already int.
+		if v, ok := val.(int); ok {
+			return v
+		}
+		// Use int64 conversion as intermediary.
+		if converted := convertValue(val, "int64", convMap); converted != val {
+			if int64Val, ok := converted.(int64); ok {
+				return int(int64Val)
+			}
+		}
+	case "float64":
+		// Check if already float64.
+		if v, ok := val.(float64); ok {
+			return v
+		}
+		// Handle json.Number.
+		if num, ok := val.(json.Number); ok {
+			if floatVal, err := num.Float64(); err == nil {
+				return floatVal
+			}
+		}
+		// Handle string.
+		if s, ok := val.(string); ok {
+			if floatVal, err := strconv.ParseFloat(s, 64); err == nil {
+				return floatVal
+			}
+		}
+	case "bool":
+		// Check if already bool.
+		if v, ok := val.(bool); ok {
+			return v
+		}
+		// Handle string.
+		if s, ok := val.(string); ok {
+			if boolVal, err := strconv.ParseBool(s); err == nil {
+				return boolVal
+			}
+		}
+	}
+
+	// Return original value if no conversion was applicable.
+	return val
 }
