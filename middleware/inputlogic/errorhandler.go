@@ -1,6 +1,7 @@
 package inputlogic
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/pakkasys/fluidapi/core"
@@ -77,8 +78,30 @@ func (e *ExpectedError) MaskAPIError(
 	return e.Status, core.NewAPIError(useErrorID).WithData(useData)
 }
 
+// ExpectedErrors is a slice of ExpectedError.
 type ExpectedErrors []ExpectedError
 
+// With appends the given errors to the slice.
 func (e ExpectedErrors) With(errs ...ExpectedError) ExpectedErrors {
 	return append(e, errs...)
+}
+
+// GetByID returns the ExpectedError with the given ID, or nil if not found.
+func (e ExpectedErrors) GetByID(id string) *ExpectedError {
+	for i := range e {
+		if e[i].ID == id {
+			return &e[i]
+		}
+	}
+	return nil
+}
+
+// MustGetByID returns the ExpectedError with the given ID, or panics if not
+// found.
+func (e ExpectedErrors) MustGetByID(id string) *ExpectedError {
+	expectedError := e.GetByID(id)
+	if expectedError == nil {
+		panic(fmt.Sprintf("expected error ID %q not found", id))
+	}
+	return expectedError
 }

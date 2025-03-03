@@ -7,10 +7,12 @@ import (
 	"github.com/pakkasys/fluidapi/endpoint"
 )
 
+// StackBuilder builds a middleware stack.
 type StackBuilder struct {
 	stack endpoint.Stack
 }
 
+// NewStackBuilder returns a new instance.
 func NewStackBuilder(
 	requestIDFn func(r *http.Request) string,
 	panicHandlerLoggerFn func(r *http.Request) func(messages ...any),
@@ -27,10 +29,12 @@ func NewStackBuilder(
 	}
 }
 
+// Build returns the middleware stack.
 func (b *StackBuilder) Build() endpoint.Stack {
 	return b.stack
 }
 
+// MustAddMiddleware adds middleware to the stack and panics if it fails.
 func (b *StackBuilder) MustAddMiddleware(
 	wrapper ...endpoint.Wrapper,
 ) StackBuilder {

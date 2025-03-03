@@ -201,47 +201,42 @@ func (o *ObjectPicker) extractMap(
 
 		if fieldCfg.Fields != nil {
 			// Process nested fields.
-			raw := o.getValueFromSource(
-				r,
-				key,
-				effectiveSource,
-				urlData,
-				bodyData,
-			)
-			if m, ok := raw.(map[string]any); ok {
-				res[key] = o.extractMapFromRaw(m, fieldCfg, effectiveSource)
-			} else {
+			raw := o.getValueFromSource(r, key, effectiveSource, urlData, bodyData)
+			switch v := raw.(type) {
+			case map[string]any:
+				// The field is a nested object.
+				res[key] = o.extractMapFromRaw(v, fieldCfg, effectiveSource)
+			case []any:
+				// The field is a slice of nested objects.
+				var list []any
+				for _, elem := range v {
+					if m, ok := elem.(map[string]any); ok {
+						list = append(list, o.extractMapFromRaw(m, fieldCfg, effectiveSource))
+					} else {
+						// If the element is not a map, you can either skip it or add it as-is.
+						list = append(list, elem)
+					}
+				}
+				res[key] = list
+			default:
 				// Fall back to flat composite keys (e.g. "parent.child")
 				nested := make(map[string]any)
 				for subKey := range fieldCfg.Fields {
 					compositeKey := key + "." + subKey
-					val := o.getValueFromSource(
-						r,
-						compositeKey,
-						effectiveSource,
-						urlData,
-						bodyData,
-					)
-					val = convertValue(
-						val,
-						fieldCfg.Fields[subKey].ExpectedType,
-						o.conversionMap,
-					)
+					val := o.getValueFromSource(r, compositeKey, effectiveSource, urlData, bodyData)
+					val = convertValue(val, fieldCfg.Fields[subKey].ExpectedType, o.conversionMap)
 					// If value is missing and field is optional, skip it.
-					if (val == nil || val == "") &&
-						fieldCfg.Fields[subKey].Optional {
+					if (val == nil || val == "") && fieldCfg.Fields[subKey].Optional {
 						continue
 					}
 					// If value is missing, try default value.
-					if (val == nil || val == "") &&
-						fieldCfg.Fields[subKey].DefaultValue != nil {
+					if (val == nil || val == "") && fieldCfg.Fields[subKey].DefaultValue != nil {
 						val = fieldCfg.Fields[subKey].DefaultValue
 					}
 					if val != nil && val != "" {
 						nested[subKey] = val
 					}
 				}
-				// Only add the nested object if it is not empty.
 				if len(nested) > 0 {
 					res[key] = nested
 				}
@@ -399,6 +394,6 @@ func convertValue(
 		}
 	}
 
-	// Return original value if no conversion was applicable.
+	// TODO: Error instead
 	return val
 }

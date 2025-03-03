@@ -1,4 +1,4 @@
-package mysqlquery
+package mysql
 
 import (
 	"github.com/pakkasys/fluidapi/database"
@@ -10,7 +10,7 @@ type Builder struct{}
 // Insert delegates to the package-level Insert function.
 func (b *Builder) Insert(
 	tableName string,
-	insertedValues database.InsertedValues,
+	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	return Insert(tableName, insertedValues)
 }
@@ -18,7 +18,7 @@ func (b *Builder) Insert(
 // InsertMany delegates to the package-level InsertMany function.
 func (b *Builder) InsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 ) (string, []any) {
 	return InsertMany(tableName, insertedValues)
 }
@@ -26,7 +26,7 @@ func (b *Builder) InsertMany(
 // UpsertMany delegates to the package-level UpsertMany function.
 func (b *Builder) UpsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 	updateProjections []database.Projection,
 ) (string, []any) {
 	return UpsertMany(tableName, insertedValues, updateProjections)

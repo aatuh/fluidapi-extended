@@ -1,4 +1,4 @@
-package mysqlquery
+package mysql
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ const (
 //   - insertedValues: Function used to get the columns and values to insert.
 func Insert(
 	tableName string,
-	insertedValues database.InsertedValues,
+	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	columns, values := insertedValues()
 	columnNames := getInsertQueryColumnNames(columns)
@@ -47,7 +47,7 @@ func Insert(
 //   - insertedValues: Functions used to get the columns and values to insert.
 func InsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 ) (string, []any) {
 	if len(insertedValues) == 0 {
 		return "", nil
@@ -85,7 +85,7 @@ func InsertMany(
 //   - updateProjections: The projections of the entities to update.
 func UpsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 	updateProjections []database.Projection,
 ) (string, []any) {
 	if len(insertedValues) == 0 {

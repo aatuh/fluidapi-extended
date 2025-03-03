@@ -1,8 +1,9 @@
-package sqliteutil
+package sqlite
 
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/mattn/go-sqlite3"
 	"github.com/pakkasys/fluidapi-extended/util"
@@ -19,11 +20,14 @@ type ErrorChecker struct{}
 
 // Check attempts to match a given error against common SQLite errors.
 func (c *ErrorChecker) Check(err error) error {
+	if err == nil {
+		return nil
+	}
 	if isSQLiteErrorCode(err, DuplicateEntryErrorCode) {
 		return util.DuplicateEntryError.WithData(err)
 	} else if isSQLiteErrorCode(err, ForeignConstraintErrorCode) {
 		return util.ForeignConstraintError.WithData(err)
-	} else if err == sql.ErrNoRows {
+	} else if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
 		return util.NoRowsError
 	}
 	return err

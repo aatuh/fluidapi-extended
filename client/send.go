@@ -90,6 +90,7 @@ func Send[Output any](
 	}, nil
 }
 
+// createRequest creates a new request with the specified method, URL, and body.
 func createRequest(
 	method string,
 	url string,
@@ -117,6 +118,7 @@ func createRequest(
 	return req, nil
 }
 
+// marshalBody marshals the body into a JSON reader.
 func marshalBody(body any) (*bytes.Reader, error) {
 	if body == nil {
 		return bytes.NewReader(nil), nil
@@ -130,6 +132,7 @@ func marshalBody(body any) (*bytes.Reader, error) {
 	return bytes.NewReader(bodyBytes), nil
 }
 
+// responseToPayload unmarshals the response body into the output object.
 func responseToPayload[T any](r *http.Response, output *T) (*T, error) {
 	defer r.Body.Close()
 

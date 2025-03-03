@@ -51,19 +51,18 @@ func ParseInput(method string, input any) (*ParsedInput, error) {
 	for i := 0; i < inputVal.NumField(); i++ {
 		field := inputVal.Field(i)
 		fieldInfo := inputType.Field(i)
-		updatedCookies, err := processField(
+		err := processField(
 			field,
 			fieldInfo,
 			determineDefaultPlacement(method),
 			headers,
-			cookies,
+			&cookies,
 			urlParameters,
 			body,
 		)
 		if err != nil {
 			return nil, err
 		}
-		cookies = updatedCookies
 	}
 
 	return &ParsedInput{
@@ -89,6 +88,8 @@ func ConstructURL(host string, path string, params string) string {
 	return fmt.Sprintf("%s?%s", url, params)
 }
 
+// determineDefaultPlacement determines the default placement for a field based
+// on the HTTP method.
 func determineDefaultPlacement(method string) string {
 	switch method {
 	case http.MethodGet:
@@ -100,15 +101,16 @@ func determineDefaultPlacement(method string) string {
 	}
 }
 
+// processField processes a field of the input struct based on its tags.
 func processField(
 	field reflect.Value,
 	fieldInfo reflect.StructField,
 	defaultPlacement string,
 	headers map[string]string,
-	cookies []http.Cookie,
+	cookies *[]http.Cookie,
 	urlParameters map[string]any,
 	body map[string]any,
-) ([]http.Cookie, error) {
+) error {
 	// Determine field value placement in the request
 	placement := fieldInfo.Tag.Get(sourceTag)
 	if placement == "" {
@@ -118,10 +120,7 @@ func processField(
 	// Place the field value in the appropriate map or slice
 	return placeFieldValue(
 		placement,
-		determineFieldName(
-			fieldInfo.Tag.Get(jsonTag),
-			fieldInfo.Name,
-		),
+		determineFieldName(fieldInfo.Tag.Get(jsonTag), fieldInfo.Name),
 		extractFieldValue(field),
 		headers,
 		cookies,
@@ -130,6 +129,8 @@ func processField(
 	)
 }
 
+// determineFieldName determines the field name to use in the request based on
+// the JSON tag and the field name.
 func determineFieldName(jsonTag string, fieldName string) string {
 	jsonFieldName := strings.Split(jsonTag, ",")[0]
 	if jsonFieldName == "" {
@@ -138,6 +139,7 @@ func determineFieldName(jsonTag string, fieldName string) string {
 	return jsonFieldName
 }
 
+// extractFieldValue extracts the field value based on its type.
 func extractFieldValue(field reflect.Value) any {
 	switch field.Kind() {
 	case reflect.Bool:
@@ -155,15 +157,17 @@ func extractFieldValue(field reflect.Value) any {
 	}
 }
 
+// placeFieldValue places the field value in the appropriate map or slice based
+// on its placement.
 func placeFieldValue(
 	placement string,
 	jsonFieldName string,
 	value any,
 	headers map[string]string,
-	cookies []http.Cookie,
+	cookies *[]http.Cookie,
 	urlParameters map[string]any,
 	body map[string]any,
-) ([]http.Cookie, error) {
+) error {
 	switch placement {
 	case tagURL:
 		urlParameters[jsonFieldName] = value
@@ -172,15 +176,12 @@ func placeFieldValue(
 	case tagHeader, tagHeaders:
 		headers[jsonFieldName] = fmt.Sprintf("%v", value)
 	case tagCookie, tagCookies:
-		cookies = append(
-			cookies,
-			http.Cookie{
-				Name:  jsonFieldName,
-				Value: fmt.Sprintf("%v", value),
-			},
-		)
+		*cookies = append(*cookies, http.Cookie{
+			Name:  jsonFieldName,
+			Value: fmt.Sprintf("%v", value),
+		})
 	default:
-		return cookies, fmt.Errorf("invalid source tag: %s", placement)
+		return fmt.Errorf("invalid source tag: %s", placement)
 	}
-	return cookies, nil
+	return nil
 }

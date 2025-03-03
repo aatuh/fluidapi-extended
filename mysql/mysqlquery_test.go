@@ -1,4 +1,4 @@
-package mysqlquery
+package mysql
 
 import (
 	"reflect"

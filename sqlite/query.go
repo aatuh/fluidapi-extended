@@ -1,4 +1,4 @@
-package sqlitequery
+package sqlite
 
 import (
 	"fmt"
@@ -20,12 +20,15 @@ const (
 	SET_FOREIGN_KEYS = "FOREIGN_KEYS"
 )
 
+// Query is a query builder for MySQL.
+type Query struct{}
+
 // Insert returns the query and values to insert an entity.
 //   - tableName: the name of the table.
 //   - insertedValues: a function that returns the columns and values to insert.
-func Insert(
+func (b *Query) Insert(
 	tableName string,
-	insertedValues database.InsertedValues,
+	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	columns, values := insertedValues()
 	columnNames := getInsertQueryColumnNames(columns)
@@ -43,9 +46,9 @@ func Insert(
 }
 
 // InsertMany returns the query and values to insert multiple entities.
-func InsertMany(
+func (b *Query) InsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 ) (string, []any) {
 	if len(insertedValues) == 0 {
 		return "", nil
@@ -79,25 +82,79 @@ func InsertMany(
 // Note: SQLite does not support partial upsert like MySQL. This
 // implementation uses "INSERT OR REPLACE" which replaces the entire row.
 // The updateProjections are ignored.
-func UpsertMany(
+func (b *Query) UpsertMany(
 	tableName string,
-	insertedValues []database.InsertedValues,
+	insertedValues []database.InsertedValuesFn,
 	updateProjections []database.Projection,
 ) (string, []any) {
 	if len(insertedValues) == 0 {
 		return "", nil
 	}
 
-	// Generate the base INSERT query.
-	query, values := InsertMany(tableName, insertedValues)
-	// Replace "INSERT INTO" with "INSERT OR REPLACE INTO"
-	upsertQuery := strings.Replace(query, "INSERT INTO",
-		"INSERT OR REPLACE INTO", 1)
-	return upsertQuery, values
+	// Get columns from the first row; assume they're consistent for all rows.
+	cols, _ := insertedValues[0]()
+
+	// Build the multi-row VALUES placeholders and gather all parameters.
+	var allValues []any
+	var placeholdersArr []string
+
+	for _, iv := range insertedValues {
+		_, rowVals := iv()
+
+		// Create a list of "?" placeholders matching the row length.
+		placeholder := make([]string, len(rowVals))
+		for i := range placeholder {
+			placeholder[i] = "?"
+		}
+
+		placeholdersArr = append(
+			placeholdersArr,
+			fmt.Sprintf("(%s)", strings.Join(placeholder, ", ")),
+		)
+		allValues = append(allValues, rowVals...)
+	}
+
+	// Base INSERT statement (no semicolon yet).
+	insertQuery := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES %s",
+		tableName,
+		strings.Join(cols, ", "),
+		strings.Join(placeholdersArr, ", "),
+	)
+
+	// Build the DO UPDATE SET clause. Skip "id" and "created" so they're not
+	// overwritten if a row with the same 'id' already exists.
+	var sets []string
+	for _, col := range cols {
+		if col == "id" || col == "created" {
+			continue
+		}
+		sets = append(
+			sets,
+			fmt.Sprintf("%s=excluded.%s", col, col),
+		)
+	}
+
+	projectedColumns := []string{}
+	for _, proj := range updateProjections {
+		projectedColumns = append(projectedColumns, proj.Column)
+	}
+
+	// If your primary key is something else (or composite), replace (id).
+	conflictClause := fmt.Sprintf(
+		"ON CONFLICT(%s) DO UPDATE SET %s",
+		strings.Join(projectedColumns, ", "),
+		strings.Join(sets, ", "),
+	)
+
+	// Final upsert query.
+	upsertQuery := fmt.Sprintf("%s %s", insertQuery, conflictClause)
+
+	return upsertQuery, allValues
 }
 
 // Get returns a SELECT query for retrieving entities.
-func Get(
+func (b *Query) Get(
 	tableName string,
 	dbOptions *database.GetOptions,
 ) (string, []any) {
@@ -119,22 +176,14 @@ func Get(
 		builder.WriteString(" " + getOrderClauseFromOrders(dbOptions.Orders))
 	}
 	if dbOptions.Page != nil {
-		builder.WriteString(" " + GetLimitOffsetClauseFromPage(dbOptions.Page))
+		builder.WriteString(" " + getLimitOffsetClauseFromPage(dbOptions.Page))
 	}
 	// SQLite does not support FOR UPDATE locking.
 	return builder.String(), whereValues
 }
 
-// GetLimitOffsetClauseFromPage returns a LIMIT/OFFSET clause.
-func GetLimitOffsetClauseFromPage(page *database.Page) string {
-	if page == nil {
-		return ""
-	}
-	return fmt.Sprintf("LIMIT %d OFFSET %d", page.Limit, page.Offset)
-}
-
 // Count returns a query to count the entities.
-func Count(
+func (b *Query) Count(
 	tableName string,
 	dbOptions *database.CountOptions,
 ) (string, []any) {
@@ -150,7 +199,7 @@ func Count(
 			tableName,
 			joinStmt,
 			whereClause,
-			GetLimitOffsetClauseFromPage(dbOptions.Page),
+			getLimitOffsetClauseFromPage(dbOptions.Page),
 		))
 		innerQuery := innerBuilder.String()
 
@@ -175,7 +224,7 @@ func Count(
 }
 
 // UpdateQuery returns the query and values for an UPDATE.
-func UpdateQuery(
+func (b *Query) UpdateQuery(
 	tableName string,
 	updateFields []database.UpdateField,
 	selectors []database.Selector,
@@ -198,7 +247,7 @@ func UpdateQuery(
 }
 
 // Delete returns the query and values to delete entities.
-func Delete(
+func (b *Query) Delete(
 	tableName string,
 	selectors []database.Selector,
 	opts *database.DeleteOptions,
@@ -223,7 +272,7 @@ func Delete(
 }
 
 // CreateDatabaseQuery for SQLite returns an empty string.
-func CreateDatabaseQuery(
+func (b *Query) CreateDatabaseQuery(
 	dbName string,
 	ifNotExists bool,
 	charset string,
@@ -233,20 +282,20 @@ func CreateDatabaseQuery(
 }
 
 // CreateTableQuery returns the query and values to create a table.
-func CreateTableQuery(
+func (b *Query) CreateTableQuery(
 	tableName string,
 	ifNotExists bool,
 	columns []database.ColumnDefinition,
 	constraints []string,
 	options database.TableOptions,
 ) (string, []any, error) {
-	var b strings.Builder
+	var builder strings.Builder
 
-	b.WriteString("CREATE TABLE ")
+	builder.WriteString("CREATE TABLE ")
 	if ifNotExists {
-		b.WriteString("IF NOT EXISTS ")
+		builder.WriteString("IF NOT EXISTS ")
 	}
-	b.WriteString(fmt.Sprintf("`%s` (\n", tableName))
+	builder.WriteString(fmt.Sprintf("`%s` (\n", tableName))
 
 	var defs []string
 	// Build column definitions.
@@ -283,25 +332,25 @@ func CreateTableQuery(
 	for _, constraint := range constraints {
 		defs = append(defs, "  "+constraint)
 	}
-	b.WriteString(strings.Join(defs, ",\n"))
-	b.WriteString("\n)")
+	builder.WriteString(strings.Join(defs, ",\n"))
+	builder.WriteString("\n)")
 
 	// Table options like ENGINE, CHARSET, or COLLATE do not apply in
 	// SQLite and are ignored.
 
-	b.WriteString(";")
-	return b.String(), nil, nil
+	builder.WriteString(";")
+	return builder.String(), nil, nil
 }
 
 // UseDatabaseQuery is effectively a no-op for SQLite.
 // Since SQLite uses file-based databases, the concept of switching
 // databases isn’t applicable.
-func UseDatabaseQuery(dbName string) (string, []any, error) {
+func (b *Query) UseDatabaseQuery(dbName string) (string, []any, error) {
 	return "", nil, nil
 }
 
 // SetVariableQuery for SQLite might support only a subset of options.
-func SetVariableQuery(variable string, value string) (string, []any, error) {
+func (b *Query) SetVariableQuery(variable string, value string) (string, []any, error) {
 	upperVar := strings.ToUpper(variable)
 	switch upperVar {
 	case SET_JOURNAL_MODE:
@@ -349,13 +398,21 @@ func getOrderClauseFromOrders(orders []database.Order) string {
 }
 
 // AdvisoryLock for SQLite returns an empty string.
-func AdvisoryLock(lockName string, timeout int) (string, []any, error) {
+func (b *Query) AdvisoryLock(lockName string, timeout int) (string, []any, error) {
 	return "", nil, nil
 }
 
 // AdvisoryUnlock for SQLite returns an empty string.
-func AdvisoryUnlock(lockName string) (string, []any, error) {
+func (b *Query) AdvisoryUnlock(lockName string) (string, []any, error) {
 	return "", nil, nil
+}
+
+// getLimitOffsetClauseFromPage returns a LIMIT/OFFSET clause.
+func getLimitOffsetClauseFromPage(page *database.Page) string {
+	if page == nil {
+		return ""
+	}
+	return fmt.Sprintf("LIMIT %d OFFSET %d", page.Limit, page.Offset)
 }
 
 // columnSelectorToString returns the string representation of a column

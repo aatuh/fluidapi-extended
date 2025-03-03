@@ -28,11 +28,11 @@ func NewURLEncoder() *URLEncoder {
 	return &URLEncoder{}
 }
 
-// Encodes data into URL values to support the following syntax:
+// Encodes data into URL values to support the following recursive URL syntax:
 // someKey=value
 // someStruct.field=value
 // someSlice[0]=value
-// someStruct[0].key=value
+// someMap.key=value
 //
 // It will preserve the order of the fields in the struct.
 // It will return an error if a "json" tag is not found for a struct field.
@@ -55,11 +55,11 @@ func (e URLEncoder) Encode(data map[string]any) (url.Values, error) {
 	return values, nil
 }
 
-// Decodes data from URL values to support the following syntax:
+// Decodes data from URL values to support the following recursive URL syntax:
 // someKey=value
 // someStruct.field=value
 // someSlice[0]=value
-// someStruct[0].key=value
+// someMap.key=value
 //
 // It will preserve the order of the fields in the struct.
 //
@@ -105,6 +105,8 @@ func encodeValue(values *url.Values, fieldTag string, v reflect.Value) error {
 		return encodeBool(values, fieldTag, v)
 	case reflect.Slice:
 		return encodeSlice(values, fieldTag, v)
+	case reflect.Map:
+		return encodeMap(values, fieldTag, v)
 	case reflect.Struct:
 		return encodeStruct(values, fieldTag, v)
 	default:
@@ -142,6 +144,24 @@ func encodeSlice(values *url.Values, fieldTag string, v reflect.Value) error {
 		sliceElem := v.Index(j)
 		newFieldTag := fmt.Sprintf("%s[%d]", fieldTag, j)
 		if err := encodeValue(values, newFieldTag, sliceElem); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func encodeMap(values *url.Values, fieldTag string, v reflect.Value) error {
+	// Only support maps with string keys.
+	if v.Type().Key().Kind() != reflect.String {
+		return fmt.Errorf("map keys must be strings, got %s", v.Type().Key().Kind())
+	}
+	for _, key := range v.MapKeys() {
+		keyStr := key.String()
+		newFieldTag := keyStr
+		if fieldTag != "" {
+			newFieldTag = fieldTag + "." + keyStr
+		}
+		if err := encodeValue(values, newFieldTag, v.MapIndex(key)); err != nil {
 			return err
 		}
 	}
@@ -299,7 +319,7 @@ func createMapIntoSlice(
 		elem = make(map[string]any)
 		slice.set(idx, elem)
 	}
-	// Eensure elem is a map
+	// Ensure elem is a map
 	castedElem, ok := elem.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("expected map[string]any, got %T", elem)

@@ -1,4 +1,4 @@
-package mysqlutil
+package mysql
 
 import (
 	"database/sql"
