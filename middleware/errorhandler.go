@@ -1,4 +1,4 @@
-package inputlogic
+package middleware
 
 import (
 	"fmt"
@@ -16,8 +16,7 @@ type ErrorHandler struct{}
 // API error. It checks if the error is an *apierror.Error and handles it
 // accordingly.
 func (e ErrorHandler) Handle(
-	err error,
-	expectedErrs []ExpectedError,
+	err error, expectedErrs []ExpectedError,
 ) (int, *core.APIError) {
 	apiError, ok := err.(*core.APIError)
 	if !ok {
@@ -27,8 +26,7 @@ func (e ErrorHandler) Handle(
 }
 
 func (e *ErrorHandler) handleAPIError(
-	apiError *core.APIError,
-	expectedErrs []ExpectedError,
+	apiError *core.APIError, expectedErrs []ExpectedError,
 ) (int, *core.APIError) {
 	expectedError := e.getExpectedError(apiError, expectedErrs)
 	if expectedError == nil {
@@ -38,8 +36,7 @@ func (e *ErrorHandler) handleAPIError(
 }
 
 func (e *ErrorHandler) getExpectedError(
-	apiError *core.APIError,
-	expectedErrs []ExpectedError,
+	apiError *core.APIError, expectedErrs []ExpectedError,
 ) *ExpectedError {
 	for i := range expectedErrs {
 		if apiError.ID == expectedErrs[i].ID {

@@ -54,8 +54,7 @@ type ObjectPicker struct {
 
 // NewObjectPicker returns a new ObjectPicker.
 func NewObjectPicker(
-	urlDecoder URLDecoder,
-	conversionMap map[string]func(any) any,
+	urlDecoder URLDecoder, conversionMap map[string]func(any) any,
 ) *ObjectPicker {
 	return &ObjectPicker{
 		urlDecoder:    urlDecoder,
@@ -68,8 +67,7 @@ func NewObjectPicker(
 // If a source is set at a higher (parent) level, then child fields will use
 // that source.
 func (o *ObjectPicker) PickMap(
-	r *http.Request,
-	config *MapFieldConfig,
+	r *http.Request, config *MapFieldConfig,
 ) (map[string]any, error) {
 	// Load body and URL data since a map may draw from either.
 	bodyData, err := o.bodyToMap(r)
@@ -82,15 +80,11 @@ func (o *ObjectPicker) PickMap(
 	}
 
 	// Do not override top-level if not explicitly provided.
-	topSource := config.Source
-	result := o.extractMap(config, topSource, r, urlData, bodyData)
-	return result, nil
+	return o.extractMap(config, config.Source, r, urlData, bodyData), nil
 }
 
 // determineDefaultSource selects the default source based on HTTP method.
-func (o *ObjectPicker) determineDefaultSource(
-	httpMethod string,
-) string {
+func (o *ObjectPicker) determineDefaultSource(httpMethod string) string {
 	switch httpMethod {
 	case http.MethodGet:
 		return sourceURL
@@ -223,8 +217,14 @@ func (o *ObjectPicker) extractMap(
 				nested := make(map[string]any)
 				for subKey := range fieldCfg.Fields {
 					compositeKey := key + "." + subKey
-					val := o.getValueFromSource(r, compositeKey, effectiveSource, urlData, bodyData)
-					val = convertValue(val, fieldCfg.Fields[subKey].ExpectedType, o.conversionMap)
+					val := o.getValueFromSource(
+						r, compositeKey, effectiveSource, urlData, bodyData,
+					)
+					val = convertValue(
+						val,
+						fieldCfg.Fields[subKey].ExpectedType,
+						o.conversionMap,
+					)
 					// If value is missing and field is optional, skip it.
 					if (val == nil || val == "") && fieldCfg.Fields[subKey].Optional {
 						continue
@@ -270,36 +270,48 @@ func (o *ObjectPicker) extractMap(
 }
 
 // extractMapFromRaw applies nested config on an already parsed raw map.
+
 func (o *ObjectPicker) extractMapFromRaw(
-	raw map[string]any,
-	config *MapFieldConfig,
-	parentSource string,
+	raw map[string]any, config *MapFieldConfig, parentSource string,
 ) map[string]any {
 	res := make(map[string]any)
 	for key, fieldCfg := range config.Fields {
 		if fieldCfg.Fields != nil {
+			// Check if the field is a nested object.
 			if subRaw, ok := raw[key].(map[string]any); ok {
 				nested := o.extractMapFromRaw(subRaw, fieldCfg, parentSource)
-				// Only assign if not empty or if a default value is set.
 				if len(nested) > 0 {
 					res[key] = nested
 				}
+			} else if arr, ok := raw[key].([]any); ok {
+				// If it's a slice, iterate over each element.
+				var list []any
+				for _, elem := range arr {
+					if m, ok := elem.(map[string]any); ok {
+						list = append(
+							list,
+							o.extractMapFromRaw(m, fieldCfg, parentSource),
+						)
+					} else {
+						list = append(list, elem)
+					}
+				}
+				if len(list) > 0 {
+					res[key] = list
+				}
 			} else {
-				// If nested data is missing and the field is not optional,
-				// you may assign a default value if provided.
+				// If nested data is missing, assign default if provided.
 				if !fieldCfg.Optional && fieldCfg.DefaultValue != nil {
 					res[key] = fieldCfg.DefaultValue
 				}
 			}
 		} else {
+			// Leaf field extraction.
 			if val, ok := raw[key]; ok {
 				res[key] = convertValue(
-					val,
-					fieldCfg.ExpectedType,
-					o.conversionMap,
+					val, fieldCfg.ExpectedType, o.conversionMap,
 				)
 			} else {
-				// If the field is not optional and has a default, set it.
 				if !fieldCfg.Optional && fieldCfg.DefaultValue != nil {
 					res[key] = fieldCfg.DefaultValue
 				}
@@ -313,9 +325,7 @@ func (o *ObjectPicker) extractMapFromRaw(
 // If a conversion function exists in convMap for the expectedType,
 // it is applied.
 func convertValue(
-	val any,
-	expectedType string,
-	convMap map[string]func(any) any,
+	val any, expectedType string, convMap map[string]func(any) any,
 ) any {
 	if expectedType == "" {
 		return val
@@ -394,6 +404,5 @@ func convertValue(
 		}
 	}
 
-	// TODO: Error instead
 	return val
 }

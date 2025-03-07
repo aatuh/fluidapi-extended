@@ -21,9 +21,7 @@ const (
 //   - allowedMethods: The list of allowed methods
 //   - allowedHeaders: The list of allowed headers
 func CORSWrapper(
-	allowedOrigins []string,
-	allowedMethods []string,
-	allowedHeaders []string,
+	allowedOrigins []string, allowedMethods []string, allowedHeaders []string,
 ) *endpoint.Wrapper {
 	return &endpoint.Wrapper{
 		ID: CORSMiddlewareID,

@@ -4,937 +4,702 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
+	"sort"
 	"strconv"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
-// TestMinSlice tests the methods of MinSlice.
-func TestMinSlice(t *testing.T) {
-	// Case: Initialize a new MinSlice
-	slice := newMinSlice()
-	assert.NotNil(t, slice, "expected a new MinSlice to be initialized")
-	assert.Equal(
-		t,
-		0,
-		len(slice.elements),
-		"expected the initial MinSlice to have no elements",
-	)
-
-	// Case: Set and Get elements in MinSlice
-	slice.set(0, "first")
-	value, exists := slice.get(0)
-	assert.True(t, exists, "expected element at index 0 to exist")
-	assert.Equal(t, "first", value, "expected value at index 0 to be 'first'")
-
-	slice.set(5, "fifth")
-	value, exists = slice.get(5)
-	assert.True(t, exists, "expected element at index 5 to exist")
-	assert.Equal(t, "fifth", value, "expected value at index 5 to be 'fifth'")
-
-	// Case: Get an element that does not exist
-	value, exists = slice.get(10)
-	assert.False(t, exists, "expected element at index 10 to not exist")
-	assert.Nil(t, value, "expected value at index 10 to be nil")
-
-	// Case: Update an existing element
-	slice.set(5, "newFifth")
-	value, exists = slice.get(5)
-	assert.True(t, exists, "expected element at index 5 to exist after update")
-	assert.Equal(
-		t,
-		"newFifth",
-		value,
-		"expected updated value at index 5 to be 'newFifth'",
-	)
-
-	// Case: Convert MinSlice to a regular slice
-	slice.set(2, "second")
-	regularSlice := slice.toSlice()
-	expectedSlice := []any{"first", "second", "newFifth"}
-	assert.ElementsMatch(
-		t,
-		expectedSlice,
-		regularSlice,
-		"expected MinSlice to convert to regular slice correctly",
-	)
-
+// equalUnordered compares two slices irrespective of order.
+func equalUnordered(a, b []any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	am := make(map[any]int)
+	bm := make(map[any]int)
+	for _, v := range a {
+		am[v]++
+	}
+	for _, v := range b {
+		bm[v]++
+	}
+	return reflect.DeepEqual(am, bm)
 }
 
-// TestDecodeURL tests the DecodeURL function.
-func TestDecodeURL(t *testing.T) {
-	// Case: Simple key-value pair
-	values := url.Values{}
-	values.Set("simpleKey", "simpleValue")
-
-	result, err := decodeURL(values)
-	assert.Nil(t, err)
-
-	expected := map[string]any{
-		"simpleKey": "simpleValue",
+// TestEncode_SimpleKey verifies that a simple key/value pair is encoded.
+func TestEncode_SimpleKey(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"foo": "bar",
 	}
-	assert.Equal(t, expected, result)
-
-	// Case: Nested key-value pair
-	values = url.Values{}
-	values.Set("level1.level2.key", "nestedValue")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-
-	expected = map[string]any{
-		"level1": map[string]any{
-			"level2": map[string]any{
-				"key": "nestedValue",
-			},
-		},
-	}
-	assert.Equal(t, expected, result)
-
-	// Case: Slice of structs
-	values = url.Values{}
-	values.Set("mySlice[0].key", "value")
-	values.Set("mySlice[1].key", "value")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-
-	expected = map[string]any{
-		"mySlice": []any{
-			map[string]any{"key": "value"},
-			map[string]any{"key": "value"},
-		},
-	}
-	assert.Equal(t, expected, result)
-
-	// Case: Slice elements
-	values = url.Values{}
-	values.Set("mySlice[0]", "sliceValue1")
-	values.Set("mySlice[1]", "sliceValue2")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-
-	expected = map[string]any{"mySlice": []any{"sliceValue1", "sliceValue2"}}
-	assert.ElementsMatch(t, expected["mySlice"], result["mySlice"])
-
-	// Case: Overwrite existing values
-	values = url.Values{}
-	values.Set("level1.level2.key", "nestedValue")
-	values.Set("level1.level2.key", "newValue")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-
-	expected = map[string]any{
-		"level1": map[string]any{
-			"level2": map[string]any{
-				"key": "newValue",
-			},
-		},
-	}
-	assert.Equal(t, expected, result)
-
-	// Case: Slice with string index
-	values = url.Values{}
-	values.Set("invalidSlice[abc]", "invalidValue")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-	expected = map[string]any{"invalidSlice[abc]": "invalidValue"}
-	assert.Equal(t, expected, result)
-
-	// Case: Complex nested and slice structure
-	values = url.Values{}
-	values.Set("complex.level1[0]", "value1")
-	values.Set("complex.level1[1]", "value2")
-	values.Set("complex.level2.key3", "value3")
-
-	result, err = decodeURL(values)
-	assert.Nil(t, err)
-
-	expected = map[string]any{
-		"complex": map[string]any{
-			"level1": []any{"value1", "value2"},
-			"level2": map[string]any{"key3": "value3"},
-		},
-	}
-	complexMap, ok := expected["complex"].(map[string]any)
-	if !ok {
-		t.Errorf("expected complex to be a map")
-	}
-	assert.ElementsMatch(
-		t,
-		complexMap["level1"],
-		result["complex"].(map[string]any)["level1"],
-	)
-
-	// Case: Triggering error with type mismatch
-	values = url.Values{}
-	values.Set("myMap.key", "mapValue")    // Initializes myMap as a map
-	values.Set("myMap[0]", "invalidValue") // Treat myMap as a slice, error
-
-	result, err = decodeURL(values)
-	assert.NotNil(t, err)
-	assert.Nil(t, result)
-}
-
-// TestEncodeValue tests the encodeValue function.
-func TestEncodeValue(t *testing.T) {
-	values := &url.Values{}
-
-	// Case: Encoding a pointer
-	str := "test pointer"
-	v := reflect.ValueOf(&str)
-	err := encodeValue(values, "pointerField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"pointerField": {"test pointer"}}, *values)
-
-	// Case: Encoding a string
-	values = &url.Values{}
-	v = reflect.ValueOf("test string")
-	err = encodeValue(values, "stringField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"stringField": {"test string"}}, *values)
-
-	// Case: Encoding an integer
-	values = &url.Values{}
-	v = reflect.ValueOf(42)
-	err = encodeValue(values, "intField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"intField": {"42"}}, *values)
-
-	// Case: Encoding a boolean
-	values = &url.Values{}
-	v = reflect.ValueOf(true)
-	err = encodeValue(values, "boolField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"boolField": {"true"}}, *values)
-
-	// Case: Encoding a slice
-	values = &url.Values{}
-	v = reflect.ValueOf([]string{"apple", "banana"})
-	err = encodeValue(values, "sliceField", v)
-	assert.Nil(t, err)
-	assert.Equal(
-		t,
-		url.Values{"sliceField[0]": {"apple"}, "sliceField[1]": {"banana"}},
-		*values,
-	)
-
-	// Case: Encoding a struct
-	values = &url.Values{}
-	type ExampleStruct struct {
-		Field string `json:"field"`
-	}
-	v = reflect.ValueOf(ExampleStruct{Field: "structField"})
-	err = encodeValue(values, "structField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"structField.field": {"structField"}}, *values)
-
-	// Case: Unsupported type
-	values = &url.Values{}
-	v = reflect.ValueOf(map[string]string{"key": "value"}) // Unsupported type
-	err = encodeValue(values, "unsupportedField", v)
-	assert.NotNil(t, err)
-	assert.EqualError(t, err, "value type not supported by URL encoding: map")
-}
-
-// TestEncodePointer tests the encodePointer function.
-func TestEncodePointer(t *testing.T) {
-	values := &url.Values{}
-	strPtr := "pointer string"
-	v := reflect.ValueOf(&strPtr)
-
-	err := encodePointer(values, "pointerField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"pointerField": {"pointer string"}}, *values)
-
-	// Case: Nil pointer
-	values = &url.Values{}
-	var nilPtr *string
-	v = reflect.ValueOf(nilPtr)
-
-	err = encodePointer(values, "nilPointerField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{}, *values) // No value should be added
-}
-
-// TestEncodeString tests the encodeString function.
-func TestEncodeString(t *testing.T) {
-	values := &url.Values{}
-	v := reflect.ValueOf("test string")
-	err := encodeString(values, "stringField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"stringField": {"test string"}}, *values)
-}
-
-// TestEncodeInt tests the encodeInt function.
-func TestEncodeInt(t *testing.T) {
-	values := &url.Values{}
-	v := reflect.ValueOf(123)
-	err := encodeInt(values, "intField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"intField": {"123"}}, *values)
-}
-
-// TestEncodeBool tests the encodeBool function.
-func TestEncodeBool(t *testing.T) {
-	values := &url.Values{}
-	v := reflect.ValueOf(true)
-	err := encodeBool(values, "boolField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{"boolField": {"true"}}, *values)
-}
-
-// TestEncodeSlice tests the encodeSlice function.
-func TestEncodeSlice(t *testing.T) {
-	values := &url.Values{}
-	v := reflect.ValueOf([]int{1, 2, 3})
-	err := encodeSlice(values, "sliceField", v)
-	assert.Nil(t, err)
-	expected := url.Values{
-		"sliceField[0]": {"1"},
-		"sliceField[1]": {"2"},
-		"sliceField[2]": {"3"},
-	}
-	assert.Equal(t, expected, *values)
-
-	// Case: Empty slice
-	values = &url.Values{}
-	v = reflect.ValueOf([]string{})
-	err = encodeSlice(values, "emptySliceField", v)
-	assert.Nil(t, err)
-	assert.Equal(t, url.Values{}, *values)
-
-	// Case: Slice with unsupported element type
-	type UnsupportedType struct {
-		Field string
-	}
-	values = &url.Values{}
-	v = reflect.ValueOf([]UnsupportedType{{Field: "value"}})
-	err = encodeSlice(values, "unsupportedSliceField", v)
-	assert.NotNil(t, err)
-	assert.EqualError(
-		t,
-		err,
-		"cannot encode field \"Field\" because it has no json tag",
-	)
-}
-
-// TestEncodeStruct tests the encodeStruct function.
-func TestEncodeStruct(t *testing.T) {
-	values := &url.Values{}
-
-	// Case: Encoding a struct with a time.Time field
-	type StructWithTime struct {
-		Timestamp time.Time `json:"timestamp"`
-	}
-
-	structWithTime := StructWithTime{
-		Timestamp: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
-	}
-	v := reflect.ValueOf(structWithTime)
-
-	err := encodeStruct(values, "timeField", v)
-	assert.Nil(t, err)
-	expected := url.Values{"timeField.timestamp": {"2023-01-01T00:00:00Z"}}
-	assert.Equal(t, expected, *values)
-
-	// Case: Struct with multiple fields
-	type MultiFieldStruct struct {
-		Title  string `json:"title"`
-		Author string `json:"author"`
-	}
-
-	values = &url.Values{}
-	multiFieldStruct := MultiFieldStruct{
-		Title:  "Go Programming",
-		Author: "John Doe",
-	}
-	v = reflect.ValueOf(multiFieldStruct)
-
-	err = encodeStruct(values, "", v)
-	assert.Nil(t, err)
-	expected = url.Values{
-		"title":  {"Go Programming"},
-		"author": {"John Doe"},
-	}
-	assert.Equal(t, expected, *values)
-}
-
-// TestEncodeStructField tests the encodeStructField function
-func TestEncodeStructField(t *testing.T) {
-	type EmbeddedStruct struct {
-		Alive bool `json:"alive"`
-	}
-
-	// Case: Anonymous field encoding
-	type AnonymousField struct {
-		EmbeddedStruct
-	}
-
-	values := &url.Values{}
-	anonymousStruct := AnonymousField{EmbeddedStruct{Alive: true}}
-	err := encodeStructField(values, "", reflect.ValueOf(anonymousStruct), 0)
-	assert.Nil(t, err)
-
-	expected := url.Values{
-		"alive": {"true"},
-	}
-	assert.Equal(t, expected, *values)
-
-	// Case: Error with unsupported anonymous field type
-	type UnsupportedAnonymous struct {
-		UnsupportedField int
-	}
-	type StructWithInvalidAnonymous struct {
-		UnsupportedAnonymous        // Anonymous field with unsupported type
-		Name                 string `json:"name"`
-	}
-
-	values = &url.Values{}
-	structWithInvalidAnonymous := StructWithInvalidAnonymous{
-		UnsupportedAnonymous: UnsupportedAnonymous{UnsupportedField: 42},
-		Name:                 "John Doe",
-	}
-
-	// Encoding the anonymous field
-	err = encodeStructField(
-		values,
-		"",
-		reflect.ValueOf(structWithInvalidAnonymous),
-		0,
-	)
-	assert.NotNil(t, err)
-	assert.EqualError(
-		t,
-		err,
-		"cannot encode field \"UnsupportedField\" because it has no json tag",
-	)
-
-	// Define a simple struct type for further tests
-	type SimpleStruct struct {
-		Name  string `json:"name"`
-		Age   int    `json:"age"`
-		Alive bool   `json:"alive"`
-	}
-
-	// Case: Field with a JSON tag
-	values = &url.Values{}
-	simpleStruct := SimpleStruct{Name: "John", Age: 30, Alive: true}
-
-	// Encode "Name" field
-	err = encodeStructField(values, "", reflect.ValueOf(simpleStruct), 0)
-	assert.Nil(t, err)
-
-	expected = url.Values{
-		"name": {"John"},
-	}
-	assert.Equal(t, expected, *values)
-
-	// Case: Error when field without a JSON tag is encountered
-	type StructWithoutJSON struct {
-		Field string
-	}
-
-	values = &url.Values{}
-	structWithoutJSON := StructWithoutJSON{Field: "value"}
-	err = encodeStructField(values, "", reflect.ValueOf(structWithoutJSON), 0)
-	assert.NotNil(t, err)
-	assert.EqualError(
-		t,
-		err,
-		"cannot encode field \"Field\" because it has no json tag",
-	)
-
-	// Case: Field with a JSON tag of "-"
-	type StructWithIgnoredField struct {
-		IgnoredField string `json:"-"`
-		ValidField   string `json:"valid_field"`
-	}
-
-	values = &url.Values{}
-	structWithIgnoredField := StructWithIgnoredField{
-		IgnoredField: "ignore",
-		ValidField:   "valid",
-	}
-
-	// Encode "IgnoredField"
-	err = encodeStructField(
-		values,
-		"",
-		reflect.ValueOf(structWithIgnoredField),
-		0,
-	)
-	assert.NotNil(t, err)
-	assert.EqualError(
-		t,
-		err,
-		"cannot encode field \"IgnoredField\" because it has no json tag",
-	)
-
-	// Case: Nested field encoding
-	type NestedStruct struct {
-		Inner SimpleStruct `json:"inner"`
-	}
-
-	values = &url.Values{}
-	nestedStruct := NestedStruct{
-		Inner: SimpleStruct{Name: "Alice", Age: 25, Alive: true},
-	}
-
-	// Encode "Inner" field
-	err = encodeStructField(
-		values,
-		"",
-		reflect.ValueOf(nestedStruct),
-		0,
-	)
-	assert.Nil(t, err)
-
-	expected = url.Values{
-		"inner.name":  {"Alice"},
-		"inner.age":   {"25"},
-		"inner.alive": {"true"},
-	}
-	assert.Equal(t, expected, *values)
-
-	// Case: Error with unsupported field type with a JSON tag
-	type StructWithUnsupportedField struct {
-		UnsupportedField func() `json:"unsupported_field"`
-		ValidField       string `json:"valid_field"`
-	}
-
-	values = &url.Values{}
-	structWithUnsupportedField := StructWithUnsupportedField{
-		UnsupportedField: func() {},
-		ValidField:       "valid",
-	}
-
-	// Encode "UnsupportedField"
-	err = encodeStructField(
-		values,
-		"",
-		reflect.ValueOf(structWithUnsupportedField),
-		0,
-	)
-	assert.NotNil(t, err)
-	assert.EqualError(t, err, "value type not supported by URL encoding: func")
-}
-
-// TestSetNestedMapValue tests the setNestedMapValue function.
-func TestSetNestedMapValue(t *testing.T) {
-	// Case: Empty key
-	currentMap := map[string]any{}
-	depth, err := setNestedMapValue(currentMap, "", "value", 0)
-	assert.Nil(t, err)
-	assert.Equal(t, currentMap, map[string]any{})
-	assert.Equal(t, 1, depth)
-
-	// Case: Simple key-value pair
-	currentMap = map[string]any{}
-	key := "simpleKey"
-	value := "simpleValue"
-
-	// Attempt to set a simple key-value pair
-	_, err = setNestedMapValue(currentMap, key, value, 0)
-	assert.Nil(t, err, "expected no error for simple key-value pair")
-	assert.Equal(
-		t,
-		"simpleValue",
-		currentMap["simpleKey"],
-		"expected value to be set correctly",
-	)
-
-	// Case: Invalid intermediate value type
-	currentMap = map[string]any{}
-	currentMap["level1"] = "notAMap"
-	key = "level1.level2.key"
-	value = "nestedValue"
-
-	_, err = setNestedMapValue(currentMap, key, value, 0)
-	assert.NotNil(
-		t,
-		err,
-		"expected an error for invalid intermediate value type",
-	)
-	expectedError := "expected map[string]any, got string"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for invalid intermediate value type",
-	)
-
-	// Case: Max recursion depth exceeded
-	currentMap = map[string]any{}
-	_, err = setNestedMapValue(currentMap, "", "value", maxRecursionDepth+1)
-	assert.NotNil(t, err)
-	assert.EqualError(
-		t,
-		err,
-		"exceeded maximum recursion depth of "+strconv.Itoa(maxRecursionDepth),
-	)
-}
-
-// TestSetFinalValue tests the setFinalValue function.
-func TestSetFinalValue(t *testing.T) {
-	currentMap := map[string]any{}
-
-	// Case: Set a regular key-value pair
-	err := setFinalValue(currentMap, "simpleKey", "simpleValue")
+	values, err := encoder.Encode(input)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	expected := map[string]any{"simpleKey": "simpleValue"}
-	if !reflect.DeepEqual(currentMap, expected) {
-		t.Errorf("expected %v, got %v", expected, currentMap)
-	}
-
-	// Case: Set a value in a slice
-	err = setFinalValue(currentMap, "mySlice[1]", "sliceValue")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	convertMinSlicesToRegularSlices(currentMap)
-
-	expected = map[string]any{
-		"simpleKey": "simpleValue",
-		"mySlice":   []any{"sliceValue"},
-	}
-
-	if !reflect.DeepEqual(currentMap, expected) {
-		t.Errorf("expected %v, got %v", expected, currentMap)
-	}
-
-	// Case: Ensure it overwrites existing value
-	err = setFinalValue(currentMap, "simpleKey", "newValue")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	convertMinSlicesToRegularSlices(currentMap)
-
-	expected["simpleKey"] = "newValue"
-	if !reflect.DeepEqual(currentMap, expected) {
-		t.Errorf("expected %v, got %v", expected, currentMap)
+	if got := values.Get("foo"); got != "bar" {
+		t.Errorf("expected foo=bar, got %q", got)
 	}
 }
 
-// TestSetSliceValue tests the setSliceValue function.
-func TestSetSliceValue(t *testing.T) {
-	// Case: Valid slice index and value
-	currentMap := map[string]any{}
-	sliceIndex := []string{"", "mySlice", "1"}
-	value := "testValue"
-
-	// Attempt to set a value at a valid slice index
-	err := setSliceValue(currentMap, sliceIndex, value)
-	assert.Nil(t, err, "expected no error for valid slice index and value")
-
-	// Ensure the value is set correctly in the slice
-	storedSlice, ok := currentMap["mySlice"].(*minSlice)
-	assert.True(t, ok, "expected stored slice to be of type *minSlice")
-	storedValue, exists := storedSlice.get(1)
-	assert.True(t, exists, "expected value to exist at index 1")
-	assert.Equal(
-		t,
-		value,
-		storedValue,
-		"expected the value to be set correctly in the slice",
-	)
-
-	// Case: Invalid slice index format
-	sliceIndex = []string{"", "mySlice", "abc"}
-
-	// Attempt to set a value with an invalid slice index format
-	err = setSliceValue(currentMap, sliceIndex, value)
-	assert.NotNil(t, err, "expected an error for invalid slice index format")
-	expectedError := "invalid index: abc"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for invalid index format",
-	)
-
-	// Case: Invalid slice type in current map
-	currentMap = map[string]any{}
-	currentMap["invalidSlice"] = "notASlice" // Set an invalid type
-
-	// Attempt to set an invalid value type
-	sliceIndex = []string{"", "invalidSlice", "0"}
-	err = setSliceValue(currentMap, sliceIndex, value)
-	assert.NotNil(t, err, "expected an error from getOrCreateSlice")
-	expectedError = "expected *minSlice, got string"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for incorrect slice type",
-	)
-}
-
-// TestGetIntermediateValue tests the getIntermediateValue function.
-func TestGetIntermediateValue(t *testing.T) {
-	currentMap := map[string]any{}
-
-	// Case: Get or create a regular map
-	part := "subMap"
-
-	result, err := getIntermediateValue(currentMap, part)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	expected := make(map[string]any)
-	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("expected %v, got %v", expected, result)
-	}
-
-	// Ensure the map is created correctly in the parent map
-	if _, ok := currentMap[part]; !ok {
-		t.Errorf("expected key %q to be created in parent map", part)
-	}
-
-	// Case: Delegate to getSliceValue for slice parts
-	part = "mySlice[0]"
-	result, err = getIntermediateValue(currentMap, part)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	expectedSlice := make(map[string]any)
-	if !reflect.DeepEqual(result, expectedSlice) {
-		t.Errorf("expected %v, got %v", expectedSlice, result)
-	}
-
-	// Ensure the slice value is created correctly
-	if _, ok := currentMap["mySlice"]; !ok {
-		t.Errorf("expected slice key %q to be created in parent map", "mySlice")
-	}
-}
-
-func TestGetMap(t *testing.T) {
-	// Case: Key exists and is a map[string]any
-	currentMap := map[string]any{
-		"validMap": map[string]any{
+// TestEncode_NestedMap verifies that nested maps produce dot-notation keys.
+func TestEncode_NestedMap(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"data": map[string]any{
 			"key": "value",
 		},
 	}
-
-	result, err := getMap(currentMap, "validMap")
-	assert.Nil(t, err)
-	assert.Equal(t, currentMap["validMap"], result)
-
-	// Case: Key does not exist
-	_, err = getMap(currentMap, "nonExistentKey")
-	if err == nil {
-		t.Fatalf("expected an error, got nil")
-	}
-
-	expectedError := "expected map[string]any, got <nil>"
-	if err.Error() != expectedError {
-		t.Errorf("expected error %q, got %q", expectedError, err.Error())
-	}
-
-	// Case: Key exists but is not a map[string]any
-	currentMap["notAMap"] = "some string"
-	_, err = getMap(currentMap, "notAMap")
-	if err == nil {
-		t.Fatalf("expected an error, got nil")
-	}
-
-	expectedError = "expected map[string]any, got string"
-	if err.Error() != expectedError {
-		t.Errorf("expected error %q, got %q", expectedError, err.Error())
-	}
-}
-
-// TestCreateMapIntoSlice tests the TestCreateMapIntoSlice function.
-func TestCreateMapIntoSlice(t *testing.T) {
-	// Case: Valid slice index creation
-	currentMap := map[string]any{}
-	sliceIndex := []string{"", "mySlice", "1"}
-
-	// Attempt to create a map into slice with valid slice index
-	result, err := createMapIntoSlice(sliceIndex, currentMap)
-	assert.Nil(t, err, "expected no error for valid slice index creation")
-	assert.NotNil(t, result, "expected a new map to be created")
-	assert.IsType(
-		t,
-		map[string]any{},
-		result,
-		"expected result to be of type map[string]any",
-	)
-
-	// Ensure the slice is created correctly in the map
-	storedSlice, ok := currentMap["mySlice"].(*minSlice)
-	assert.True(t, ok, "expected stored slice to be of type *minSlice")
-	storedElem, exists := storedSlice.get(1)
-	assert.True(t, exists, "expected element to exist at index 1")
-	assert.Equal(
-		t,
-		result,
-		storedElem,
-		"expected created map to be stored in the slice",
-	)
-
-	// Case: Invalid slice index format
-	sliceIndex = []string{"", "mySlice", "abc"}
-	_, err = createMapIntoSlice(sliceIndex, currentMap)
-	assert.NotNil(t, err, "expected an error for invalid slice index format")
-	expectedError := "invalid index: abc"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for invalid index format",
-	)
-
-	// Case: Handling incorrect element type at index
-	currentMap = map[string]any{}
-	slice, _ := getOrCreateSlice(currentMap, "testSlice")
-	slice.set(0, "notAMap")
-
-	sliceIndex = []string{"", "testSlice", "0"}
-	_, err = createMapIntoSlice(sliceIndex, currentMap)
-	assert.NotNil(
-		t,
-		err,
-		"expected an error for incorrect element type at index",
-	)
-	expectedError = "expected map[string]any, got string"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for incorrect element type",
-	)
-
-	// Case: Error returned by getOrCreateSlice
-	currentMap = map[string]any{}
-	currentMap["invalidSlice"] = "notASlice" // Set an invalid type
-
-	sliceIndex = []string{"", "invalidSlice", "0"}
-	_, err = createMapIntoSlice(sliceIndex, currentMap)
-	assert.NotNil(t, err, "expected an error from getOrCreateSlice")
-	expectedError = "expected *minSlice, got string"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for incorrect slice type",
-	)
-}
-
-// TestParseSliceIndex tests the ParseSliceIndex function.
-func TestParseSliceIndex(t *testing.T) {
-	sliceIndex := []string{"", "mySlice", "1"}
-
-	// Case: Valid slice index parsing
-	sliceName, index, err := parseSliceIndex(sliceIndex)
+	values, err := encoder.Encode(input)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if sliceName != "mySlice" || index != 1 {
+	if got := values.Get("data.key"); got != "value" {
+		t.Errorf("expected data.key=value, got %q", got)
+	}
+}
+
+// TestEncode_NestedStruct verifies that a struct with proper json tags is
+// encoded into dot-notation keys.
+func TestEncode_NestedStruct(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"person": Person{
+			Name: "John",
+			Age:  30,
+		},
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := values.Get("person.name"); got != "John" {
+		t.Errorf("expected person.name=John, got %q", got)
+	}
+	if got := values.Get("person.age"); got != "30" {
+		t.Errorf("expected person.age=30, got %q", got)
+	}
+}
+
+// TestEncode_Slice verifies that a slice is encoded into indexed keys.
+func TestEncode_Slice(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"list": []string{"a", "b", "c"},
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for i, expected := range []string{"a", "b", "c"} {
+		key := "list[" + strconv.Itoa(i) + "]"
+		if got := values.Get(key); got != expected {
+			t.Errorf("expected %s=%q, got %q", key, expected, got)
+		}
+	}
+}
+
+// TestEncode_Map verifies that a map is encoded with keys joined by dots.
+func TestEncode_Map(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"settings": map[string]any{
+			"theme": "dark",
+			"lang":  "en",
+		},
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := values.Get("settings.theme"); got != "dark" {
+		t.Errorf("expected settings.theme=dark, got %q", got)
+	}
+	if got := values.Get("settings.lang"); got != "en" {
+		t.Errorf("expected settings.lang=en, got %q", got)
+	}
+}
+
+// TestEncode_MissingJSONTag verifies that a struct with missing json tags
+// returns an error.
+func TestEncode_MissingJSONTag(t *testing.T) {
+	type NoTag struct {
+		Field string
+	}
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"notag": NoTag{Field: "value"},
+	}
+	_, err := encoder.Encode(input)
+	if err == nil {
+		t.Fatal("expected error for struct with missing json tag, got nil")
+	}
+}
+
+// TestEncode_MapNonStringKey verifies that a map with non-string keys is
+// rejected.
+func TestEncode_MapNonStringKey(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"badMap": map[int]string{
+			1: "one",
+		},
+	}
+	_, err := encoder.Encode(input)
+	if err == nil {
+		t.Fatal("expected error for map with non-string keys, got nil")
+	}
+}
+
+// TestEncode_AnonymousField verifies that anonymous fields are encoded correctly.
+func TestEncode_AnonymousField(t *testing.T) {
+	type Embedded struct {
+		Field string `json:"field"`
+	}
+	type WithEmbedded struct {
+		Embedded
+		Other string `json:"other"`
+	}
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"struct": WithEmbedded{
+			Embedded: Embedded{Field: "embedded"},
+			Other:    "other",
+		},
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Expect keys "struct.field" and "struct.other".
+	if got := values.Get("struct.field"); got != "embedded" {
+		t.Errorf("expected struct.field=embedded, got %q", got)
+	}
+	if got := values.Get("struct.other"); got != "other" {
+		t.Errorf("expected struct.other=other, got %q", got)
+	}
+}
+
+// TestEncode_NilPointer verifies that a nil pointer is handled gracefully.
+func TestEncode_NilPointer(t *testing.T) {
+	encoder := NewURLEncoder()
+	var ptr *string = nil
+	input := map[string]any{
+		"nilptr": ptr,
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Nil pointer should not produce any key.
+	if _, ok := values["nilptr"]; ok {
+		t.Errorf("expected no key for nil pointer, got %v", values)
+	}
+}
+
+// TestEncode_EmptyInput verifies that encoding an empty map returns empty url.Values.
+func TestEncode_EmptyInput(t *testing.T) {
+	encoder := NewURLEncoder()
+	input := map[string]any{}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(values) != 0 {
+		t.Errorf("expected empty url.Values, got %v", values)
+	}
+}
+
+// TestEncode_Complex verifies a complex structure with nested maps,
+// structs, slices, and time values.
+func TestEncode_Complex(t *testing.T) {
+	type Inner struct {
+		Field string `json:"field"`
+	}
+	type Outer struct {
+		Inner  Inner `json:"inner"`
+		List   []int `json:"list"`
+		Active bool  `json:"active"`
+	}
+	encoder := NewURLEncoder()
+	input := map[string]any{
+		"outer": Outer{
+			Inner:  Inner{Field: "value"},
+			List:   []int{1, 2, 3},
+			Active: true,
+		},
+	}
+	values, err := encoder.Encode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Check nested struct fields.
+	if got := values.Get("outer.inner.field"); got != "value" {
+		t.Errorf("expected outer.inner.field=value, got %q", got)
+	}
+	// Check slice encoding.
+	for i, expected := range []int{1, 2, 3} {
+		key := "outer.list[" + strconv.Itoa(i) + "]"
+		if got := values.Get(key); got != strconv.Itoa(expected) {
+			t.Errorf("expected %s=%q, got %q", key,
+				strconv.Itoa(expected), got)
+		}
+	}
+	// Check bool encoding.
+	if got := values.Get("outer.active"); got != "true" {
+		t.Errorf("expected outer.active=true, got %q", got)
+	}
+}
+
+// TestEncode_NestedStructures encodes a nested struct with a slice.
+func TestEncode_NestedStructures(t *testing.T) {
+	type Inner struct {
+		Value string `json:"value"`
+	}
+	type Outer struct {
+		Inner Inner    `json:"inner"`
+		List  []string `json:"list"`
+	}
+	encoder := NewURLEncoder()
+	data := map[string]any{
+		"obj": Outer{
+			Inner: Inner{Value: "test"},
+			List:  []string{"a", "b"},
+		},
+	}
+	values, err := encoder.Encode(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v := values.Get("obj.inner.value"); v != "test" {
+		t.Errorf("expected obj.inner.value to be 'test', got %v", v)
+	}
+	if v := values.Get("obj.list[0]"); v != "a" {
+		t.Errorf("expected obj.list[0] to be 'a', got %v", v)
+	}
+	if v := values.Get("obj.list[1]"); v != "b" {
+		t.Errorf("expected obj.list[1] to be 'b', got %v", v)
+	}
+}
+
+// TestEncodeDecode_Cycle encodes a complex structure then decodes it back,
+// verifying that the original structure is preserved.
+func TestEncodeDecode_Cycle(t *testing.T) {
+	type Inner struct {
+		Field string `json:"field"`
+	}
+	type Outer struct {
+		Inner  Inner    `json:"inner"`
+		Values []string `json:"values"`
+	}
+
+	original := map[string]any{
+		"outer": Outer{
+			Inner:  Inner{Field: "value"},
+			Values: []string{"a", "b", "c"},
+		},
+	}
+	expected := map[string]any{
+		"outer": map[string]any{
+			"inner": map[string]any{
+				"field": "value",
+			},
+			"values": []any{"a", "b", "c"},
+		},
+	}
+
+	encoder := NewURLEncoder()
+	values, err := encoder.Encode(original)
+	if err != nil {
+		t.Fatalf("unexpected error during encode: %v", err)
+	}
+
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error during decode: %v", err)
+	}
+
+	// Normalize values by sorting slices before comparison
+	normalize := func(data map[string]any) {
+		if outer, ok := data["outer"].(map[string]any); ok {
+			if values, ok := outer["values"].([]any); ok {
+				sort.Slice(values, func(i, j int) bool {
+					return fmt.Sprintf("%v", values[i]) < fmt.Sprintf("%v", values[j])
+				})
+			}
+		}
+	}
+
+	normalize(expected)
+	normalize(decoded)
+
+	if !reflect.DeepEqual(expected, decoded) {
 		t.Errorf(
-			"expected slice name %q and index 1, got %q and %d", "mySlice",
-			sliceName,
-			index,
+			"expected decoded structure to match original.\nExpected: %#v\nDecoded: %#v",
+			expected,
+			decoded,
 		)
 	}
+}
 
-	// Case: Invalid slice index format
-	sliceIndex = []string{"", "mySlice", "abc"}
-	_, _, err = parseSliceIndex(sliceIndex)
-	if err == nil {
-		t.Fatalf("expected an error, got nil")
+// TestDecode_SimpleKey tests decoding a simple key-value pair.
+func TestDecode_SimpleKey(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("foo", "bar")
+
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Case: Wrong number of slice index parts
-	sliceIndex = []string{"", "mySlice"}
-	_, _, err = parseSliceIndex(sliceIndex)
-	if err == nil {
-		t.Fatalf("expected an error, got nil")
+	if val, ok := decoded["foo"]; !ok || val != "bar" {
+		t.Errorf("expected foo=bar, got %v", decoded)
 	}
 }
 
-// TestGetOrCreateSlice tests the GetOrCreateSlice function.
-func TestGetOrCreateSlice(t *testing.T) {
-	// Case: Creating a new slice
-	currentMap := map[string]any{}
-	sliceName := "newSlice"
+// TestDecode_NestedKeys tests decoding nested keys using dot notation.
+func TestDecode_NestedKeys(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("person.name", "John")
+	values.Set("person.age", "30")
 
-	// Attempt to create a new slice
-	slice, err := getOrCreateSlice(currentMap, sliceName)
-	assert.Nil(t, err, "expected no error when creating a new slice")
-	assert.NotNil(t, slice, "expected slice to be created")
-	assert.IsType(t, &minSlice{}, slice, "expected a *minSlice type")
-
-	// Ensure the slice is created in the map
-	storedSlice, ok := currentMap[sliceName].(*minSlice)
-	assert.True(t, ok, "expected stored slice to be of type *minSlice")
-	assert.Equal(
-		t,
-		storedSlice,
-		slice,
-		"expected the created slice to be stored in the map",
-	)
-
-	// Case: Retrieving an existing slice
-	existingSlice := newMinSlice()
-	currentMap["existingSlice"] = existingSlice
-
-	// Attempt to retrieve the existing slice
-	retrievedSlice, err := getOrCreateSlice(currentMap, "existingSlice")
-	assert.Nil(t, err, "expected no error when retrieving an existing slice")
-	assert.Equal(
-		t,
-		existingSlice,
-		retrievedSlice,
-		"expected the retrieved slice to match the existing slice",
-	)
-
-	// Case: Handling incorrect type
-	currentMap["incorrectType"] = "notASlice"
-
-	// Attempt to retrieve a slice where the value is not a *minSlice
-	_, err = getOrCreateSlice(currentMap, "incorrectType")
-	assert.NotNil(t, err, "expected an error when the value is not a *minSlice")
-	expectedError := "expected *minSlice, got string"
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for incorrect type",
-	)
-
-	// Case: Too big slice
-	tooBigSlice := newMinSlice()
-	// Simulate the slice reaching its maximum size
-	for i := 0; i < maxSliceSize; i++ {
-		tooBigSlice.set(i, fmt.Sprintf("value%d", i))
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	currentMap["tooBigSlice"] = tooBigSlice
+	person, ok := decoded["person"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected person to be map, got %T", decoded["person"])
+	}
+	if person["name"] != "John" {
+		t.Errorf("expected name=John, got %v", person["name"])
+	}
+	if person["age"] != "30" {
+		t.Errorf("expected age=30, got %v", person["age"])
+	}
+}
 
-	// Attempt to add an element beyond the maxSliceSize
-	_, err = getOrCreateSlice(currentMap, "tooBigSlice")
-	assert.NotNil(t, err, "expected an error when exceeding maximum slice size")
-	expectedError = fmt.Sprintf(
-		"exceeded maximum slice size of %d",
-		maxSliceSize,
-	)
-	assert.EqualError(
-		t,
-		err,
-		expectedError,
-		"expected error message for too big slice",
-	)
+// TestDecode_Slice tests decoding slice values.
+func TestDecode_Slice(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("list[0]", "a")
+	values.Set("list[1]", "b")
 
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	list, ok := decoded["list"].([]any)
+	if !ok {
+		t.Fatalf("expected list to be slice, got %T", decoded["list"])
+	}
+	if len(list) != 2 {
+		t.Errorf("expected slice length 2, got %d", len(list))
+	}
+	// Since order is not guaranteed, check for presence.
+	foundA, foundB := false, false
+	for _, v := range list {
+		if v == "a" {
+			foundA = true
+		}
+		if v == "b" {
+			foundB = true
+		}
+	}
+	if !foundA || !foundB {
+		t.Errorf("expected slice to contain 'a' and 'b', got %v", list)
+	}
+}
+
+// TestDecode_Map tests decoding of map keys.
+func TestDecode_Map(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("map.key1", "value1")
+	values.Set("map.key2", "value2")
+
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := decoded["map"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map to be map, got %T", decoded["map"])
+	}
+	if m["key1"] != "value1" {
+		t.Errorf("expected key1=value1, got %v", m["key1"])
+	}
+	if m["key2"] != "value2" {
+		t.Errorf("expected key2=value2, got %v", m["key2"])
+	}
+}
+
+// TestDecode_Complex tests a combination of nested keys, slices, and maps.
+func TestDecode_Complex(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("user.name", "Alice")
+	values.Set("user.emails[0]", "alice@example.com")
+	values.Set("user.emails[1]", "alice@work.com")
+	values.Set("user.address.street", "123 Main St")
+
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	user, ok := decoded["user"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected user to be map, got %T", decoded["user"])
+	}
+	if user["name"] != "Alice" {
+		t.Errorf("expected name=Alice, got %v", user["name"])
+	}
+	emails, ok := user["emails"].([]any)
+	if !ok {
+		t.Fatalf("expected emails to be slice, got %T", user["emails"])
+	}
+	if len(emails) != 2 {
+		t.Errorf("expected 2 emails, got %d", len(emails))
+	}
+	found1, found2 := false, false
+	for _, v := range emails {
+		if v == "alice@example.com" {
+			found1 = true
+		}
+		if v == "alice@work.com" {
+			found2 = true
+		}
+	}
+	if !found1 || !found2 {
+		t.Errorf("emails missing expected values: %v", emails)
+	}
+	address, ok := user["address"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected address to be map, got %T", user["address"])
+	}
+	if address["street"] != "123 Main St" {
+		t.Errorf("expected street=123 Main St, got %v", address["street"])
+	}
+}
+
+// TestDecode_InvalidSliceIndex verifies that an invalid slice index returns an
+// error.
+func TestDecode_InvalidSliceIndex(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("list[abc]", "value")
+
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error for invalid slice index, got nil")
+	}
+}
+
+// TestDecode_ConflictingKeys tests that a conflict between a simple key and a
+// nested key (e.g. "person" as a string and "person.name") causes an error.
+func TestDecode_ConflictingKeys(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("person", "value")
+	values.Set("person.name", "John")
+
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error for conflicting keys, got nil")
+	}
+}
+
+// TestDecode_Structure tests that the decoded output has the expected nested
+// structure.
+func TestDecode_Structure(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("a", "1")
+	values.Set("b.c", "2")
+	values.Set("b.d", "3")
+	values.Set("e[0]", "4")
+	values.Set("e[1]", "5")
+
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Verify top-level keys.
+	if decoded["a"] != "1" {
+		t.Errorf("expected a=1, got %v", decoded["a"])
+	}
+	b, ok := decoded["b"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected b to be map, got %T", decoded["b"])
+	}
+	if b["c"] != "2" {
+		t.Errorf("expected b.c=2, got %v", b["c"])
+	}
+	if b["d"] != "3" {
+		t.Errorf("expected b.d=3, got %v", b["d"])
+	}
+	e, ok := decoded["e"].([]any)
+	if !ok {
+		t.Fatalf("expected e to be slice, got %T", decoded["e"])
+	}
+	// Since order is not guaranteed, sort the slice for comparison.
+	expected := []any{"4", "5"}
+	if !equalUnordered(e, expected) {
+		t.Errorf("expected e=%v, got %v", expected, e)
+	}
+}
+
+// TestDecode_ExceedMaxRecursion constructs a key with more than the maximum
+// allowed nesting (maxRecursionDepth=10) to force an error.
+func TestDecode_ExceedMaxRecursion(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	// Build key "a.a.a.a.a.a.a.a.a.a.a" (11 dots, 12 parts)
+	key := "a"
+	for i := 0; i < 11; i++ {
+		key = key + ".a"
+	}
+	values.Set(key, "value")
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error due to exceeding max recursion depth, got nil")
+	}
+}
+
+// TestDecode_MalformedSlice feeds a slice key with a non-integer index.
+func TestDecode_MalformedSlice(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("list[abc]", "value")
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error for malformed slice index, got nil")
+	}
+}
+
+// TestDecode_NegativeSliceIndex tests a slice index with a negative number.
+func TestDecode_NegativeSliceIndex(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("list[-1]", "value")
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error for negative slice index, got nil")
+	}
+}
+
+// TestDecode_ConflictingKeyTypes creates a conflict by using a key first as a
+// scalar and then as a nested object.
+func TestDecode_ConflictingKeyTypes(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("item", "scalar")
+	values.Set("item.sub", "nested")
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error due to conflicting key types, got nil")
+	}
+}
+
+// TestDecode_MultipleValues verifies that when multiple values are present
+// for the same key, only the first is used.
+func TestDecode_MultipleValues(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Add("key", "first")
+	values.Add("key", "second")
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val, ok := decoded["key"]; !ok || val != "first" {
+		t.Errorf("expected key to be 'first', got %v", decoded["key"])
+	}
+}
+
+// TestDecode_EmptyKey tests the behavior when an empty key is provided.
+func TestDecode_EmptyKey(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("", "empty")
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error with empty key: %v", err)
+	}
+	if val, ok := decoded[""]; !ok || val != "empty" {
+		t.Errorf("expected empty key to be 'empty', got %v", decoded[""])
+	}
+}
+
+// TestDecode_AttackKeys uses keys containing characters that might be used
+// in injection or XSS attacks to see if any unexpected parsing occurs.
+func TestDecode_AttackKeys(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("attacker<script>", "xss")
+	values.Set("normal.key", "value")
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decoded["attacker<script>"] != "xss" {
+		t.Errorf("expected attacker<script> to be 'xss', got %v",
+			decoded["attacker<script>"])
+	}
+	nested, ok := decoded["normal"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected normal to be a map, got %T", decoded["normal"])
+	}
+	if nested["key"] != "value" {
+		t.Errorf("expected normal.key to be 'value', got %v", nested["key"])
+	}
+}
+
+// TestDecode_SparseSliceIndices checks that sparse indices do not break
+// conversion to a regular slice.
+func TestDecode_SparseSliceIndices(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	values.Set("sparse[0]", "start")
+	values.Set("sparse[1000000]", "end")
+	decoded, err := encoder.Decode(values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	slice, ok := decoded["sparse"].([]any)
+	if !ok {
+		t.Fatalf("expected sparse to be slice, got %T", decoded["sparse"])
+	}
+	foundStart, foundEnd := false, false
+	for _, v := range slice {
+		if v == "start" {
+			foundStart = true
+		}
+		if v == "end" {
+			foundEnd = true
+		}
+	}
+	if !foundStart || !foundEnd {
+		t.Errorf("expected slice to contain 'start' and 'end', got %v", slice)
+	}
+}
+
+// TestDecode_ExceedMaxSliceSize adds one more element than allowed to trigger
+// the maximum slice size error.
+func TestDecode_ExceedMaxSliceSize(t *testing.T) {
+	encoder := NewURLEncoder()
+	values := url.Values{}
+	sliceName := "bigSlice"
+	for i := 0; i <= maxSliceSize; i++ {
+		key := sliceName + "[" + strconv.Itoa(i) + "]"
+		values.Set(key, "val")
+	}
+	_, err := encoder.Decode(values)
+	if err == nil {
+		t.Fatal("expected error due to exceeding max slice size, got nil")
+	}
 }

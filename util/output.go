@@ -21,8 +21,8 @@ type APIOutput[T any] struct {
 
 // TODO: Replace logger funcs with events +global
 type ILogger interface {
-	Trace(messages ...any)
-	Error(messages ...any)
+	Trace(message ...any)
+	Error(message ...any)
 }
 
 type LoggerFn func(r *http.Request) ILogger
@@ -32,16 +32,12 @@ type Output struct {
 }
 
 func (p Output) Create(
-	w http.ResponseWriter,
-	r *http.Request,
-	out any,
-	outError error,
-	status int,
+	w http.ResponseWriter, r *http.Request, out any, outError error, status int,
 ) error {
 	output, err := jsonOutput(w, out, outError, status)
 	if err != nil {
 		if p.LoggerFn != nil {
-			p.LoggerFn(r).Error("Error handling output JSON: %s", err)
+			p.LoggerFn(r).Error("Error handling output JSON", err)
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return err
