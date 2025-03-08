@@ -34,6 +34,12 @@ func (b *StackBuilder) Build() *endpoint.Stack {
 	return b.stack
 }
 
+func (b *StackBuilder) Clone() *StackBuilder {
+	return &StackBuilder{
+		stack: b.stack.Clone(),
+	}
+}
+
 // MustAddMiddleware adds middleware to the stack and panics if it fails.
 func (b *StackBuilder) MustAddMiddleware(
 	wrapper ...endpoint.Wrapper,

@@ -437,6 +437,7 @@ func ParseUpdateEndpointInput(
 		return nil, err
 	}
 	if len(dbSelectors) == 0 {
+		fmt.Println("SLSLSLSLSLSLSLS UPDATE")
 		return nil, NeedAtLeastOneSelectorError
 	}
 	dbUpdates, err := updates.ToDBUpdates(apiToDBFields)
@@ -541,6 +542,7 @@ func ParseDeleteEndpointInput(
 		return nil, err
 	}
 	if len(dbSelectors) == 0 {
+		fmt.Println("SLSLSLSLSLSLSLS DELETE")
 		return nil, NeedAtLeastOneSelectorError
 	}
 	dbOrders, err := orders.TranslateToDBOrders(apiToDBFields)

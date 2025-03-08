@@ -4,14 +4,12 @@ import (
 	"net/http"
 
 	"github.com/pakkasys/fluidapi-extended/middleware/cors"
-	"github.com/pakkasys/fluidapi-extended/middleware/inputlogic"
 	"github.com/pakkasys/fluidapi-extended/middleware/reqhandler"
 	"github.com/pakkasys/fluidapi/endpoint"
 )
 
 const (
 	CORSMiddlewareID           = "cors"
-	InputLogicMiddlewareID     = "inputlogic"
 	RequestHandlerMiddlewareID = "request_handler"
 )
 
@@ -30,19 +28,6 @@ func CORSWrapper(
 			allowedMethods,
 			allowedHeaders,
 		),
-	}
-}
-
-// InputLogicMiddlewareWrapper wraps the callback and returns a new
-// MiddlewareWrapper for the InputLogic middleware.
-//
-//   - callback: The function that handles the request.
-func InputLogicMiddlewareWrapper(
-	callback inputlogic.Callback,
-) *endpoint.Wrapper {
-	return &endpoint.Wrapper{
-		ID:         InputLogicMiddlewareID,
-		Middleware: inputlogic.Middleware(callback),
 	}
 }
 
