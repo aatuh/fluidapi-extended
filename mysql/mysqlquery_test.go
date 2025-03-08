@@ -23,13 +23,13 @@ import (
 // 	Age  int
 // }
 
-// // TestGetInsertQueryColumnNames_MultipleColumns tests getInsertQueryColumnNames
+// // TestGetInsertQueryColumnames_MultipleColumns tests getInsertQueryColumnames
 // // with multiple columns.
-// func TestGetInsertQueryColumnNames_MultipleColumns(t *testing.T) {
+// func TestGetInsertQueryColumnames_MultipleColumns(t *testing.T) {
 // 	// Multiple columns
 // 	columns := []string{"id", "name", "age"}
 
-// 	result := getInsertQueryColumnNames(columns)
+// 	result := getInsertQueryColumnames(columns)
 
 // 	// Expected result
 // 	expectedResult := "`id`, `name`, `age`"
@@ -37,13 +37,13 @@ import (
 // 	assert.Equal(t, expectedResult, result)
 // }
 
-// // TestGetInsertQueryColumnNames_SingleColumn tests getInsertQueryColumnNames
+// // TestGetInsertQueryColumnames_SingleColumn tests getInsertQueryColumnames
 // // with a single column.
-// func TestGetInsertQueryColumnNames_SingleColumn(t *testing.T) {
+// func TestGetInsertQueryColumnames_SingleColumn(t *testing.T) {
 // 	// Single column
 // 	columns := []string{"id"}
 
-// 	result := getInsertQueryColumnNames(columns)
+// 	result := getInsertQueryColumnames(columns)
 
 // 	// Expected result
 // 	expectedResult := "`id`"
@@ -51,13 +51,13 @@ import (
 // 	assert.Equal(t, expectedResult, result)
 // }
 
-// // TestGetInsertQueryColumnNames_EmptyColumns tests getInsertQueryColumnNames
+// // TestGetInsertQueryColumnames_EmptyColumns tests getInsertQueryColumnames
 // // with an empty list of columns.
-// func TestGetInsertQueryColumnNames_EmptyColumns(t *testing.T) {
+// func TestGetInsertQueryColumnames_EmptyColumns(t *testing.T) {
 // 	// Empty columns
 // 	columns := []string{}
 
-// 	result := getInsertQueryColumnNames(columns)
+// 	result := getInsertQueryColumnames(columns)
 
 // 	// Expected result is an empty string
 // 	expectedResult := ""
@@ -162,12 +162,12 @@ func TestBuildBaseCountQuery_WithJoins(t *testing.T) {
 				Type:  database.JoinTypeInner,
 				Table: "other_table",
 				OnLeft: database.ColumnSelector{
-					Table:   "test_table",
-					Columnn: "id",
+					Table:  "test_table",
+					Column: "id",
 				},
 				OnRight: database.ColumnSelector{
-					Table:   "other_table",
-					Columnn: "ref_id",
+					Table:  "other_table",
+					Column: "ref_id",
 				},
 			},
 		},
@@ -194,12 +194,12 @@ func TestBuildBaseCountQuery_WithSelectorsAndJoins(t *testing.T) {
 				Type:  database.JoinTypeInner,
 				Table: "other_table",
 				OnLeft: database.ColumnSelector{
-					Table:   "test_table",
-					Columnn: "id",
+					Table:  "test_table",
+					Column: "id",
 				},
 				OnRight: database.ColumnSelector{
-					Table:   "other_table",
-					Columnn: "ref_id",
+					Table:  "other_table",
+					Column: "ref_id",
 				},
 			},
 		},
@@ -439,12 +439,12 @@ func TestJoinClause_SingleJoin(t *testing.T) {
 			Type:  database.JoinTypeInner,
 			Table: "orders",
 			OnLeft: database.ColumnSelector{
-				Table:   "user",
-				Columnn: "id",
+				Table:  "user",
+				Column: "id",
 			},
 			OnRight: database.ColumnSelector{
-				Table:   "orders",
-				Columnn: "user_id",
+				Table:  "orders",
+				Column: "user_id",
 			},
 		},
 	}
@@ -463,24 +463,24 @@ func TestJoinClause_MultipleJoins(t *testing.T) {
 			Type:  database.JoinTypeInner,
 			Table: "order",
 			OnLeft: database.ColumnSelector{
-				Table:   "user",
-				Columnn: "id",
+				Table:  "user",
+				Column: "id",
 			},
 			OnRight: database.ColumnSelector{
-				Table:   "order",
-				Columnn: "user_id",
+				Table:  "order",
+				Column: "user_id",
 			},
 		},
 		{
 			Type:  database.JoinTypeLeft,
 			Table: "payments",
 			OnLeft: database.ColumnSelector{
-				Table:   "user",
-				Columnn: "id",
+				Table:  "user",
+				Column: "id",
 			},
 			OnRight: database.ColumnSelector{
-				Table:   "payments",
-				Columnn: "user_id",
+				Table:  "payments",
+				Column: "user_id",
 			},
 		},
 	}
@@ -499,12 +499,12 @@ func TestJoinClause_EmptyFields(t *testing.T) {
 			Type:  database.JoinTypeInner,
 			Table: "",
 			OnLeft: database.ColumnSelector{
-				Table:   "",
-				Columnn: "",
+				Table:  "",
+				Column: "",
 			},
 			OnRight: database.ColumnSelector{
-				Table:   "",
-				Columnn: "",
+				Table:  "",
+				Column: "",
 			},
 		},
 	}
@@ -635,12 +635,12 @@ func TestBuildBaseGetQuery_WithJoins(t *testing.T) {
 			Type:  database.JoinTypeInner,
 			Table: "order",
 			OnLeft: database.ColumnSelector{
-				Table:   "user",
-				Columnn: "id",
+				Table:  "user",
+				Column: "id",
 			},
 			OnRight: database.ColumnSelector{
-				Table:   "order",
-				Columnn: "user_id",
+				Table:  "order",
+				Column: "user_id",
 			},
 		},
 	}
@@ -941,8 +941,8 @@ func TestWriteDeleteOptions_WithNoOptions(t *testing.T) {
 // method.
 func TestColumnSelectorString_NormalCase(t *testing.T) {
 	selector := database.ColumnSelector{
-		Table:   "users",
-		Columnn: "id",
+		Table:  "users",
+		Column: "id",
 	}
 
 	result := columnSelectorToString(selector)
@@ -954,8 +954,8 @@ func TestColumnSelectorString_NormalCase(t *testing.T) {
 // TestColumnSelectorString_EmptyTable tests the case where the Table is empty.
 func TestColumnSelectorString_EmptyTable(t *testing.T) {
 	selector := database.ColumnSelector{
-		Table:   "",
-		Columnn: "id",
+		Table:  "",
+		Column: "id",
 	}
 
 	result := columnSelectorToString(selector)
@@ -964,11 +964,11 @@ func TestColumnSelectorString_EmptyTable(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
-// TestColumnSelectorString_EmptyColumnn tests the case where the Columnn is empty.
-func TestColumnSelectorString_EmptyColumnn(t *testing.T) {
+// TestColumnSelectorString_EmptyColumn tests the case where the Column is empty.
+func TestColumnSelectorString_EmptyColumn(t *testing.T) {
 	selector := database.ColumnSelector{
-		Table:   "users",
-		Columnn: "",
+		Table:  "users",
+		Column: "",
 	}
 
 	result := columnSelectorToString(selector)
@@ -977,12 +977,12 @@ func TestColumnSelectorString_EmptyColumnn(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
-// TestColumnSelectorString_EmptyTableAndColumnn tests the case where both the
-// Table and Columnn are empty.
-func TestColumnSelectorString_EmptyTableAndColumnn(t *testing.T) {
+// TestColumnSelectorString_EmptyTableAndColumn tests the case where both the
+// Table and Column are empty.
+func TestColumnSelectorString_EmptyTableAndColumn(t *testing.T) {
 	selector := database.ColumnSelector{
-		Table:   "",
-		Columnn: "",
+		Table:  "",
+		Column: "",
 	}
 
 	result := columnSelectorToString(selector)

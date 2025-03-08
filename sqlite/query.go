@@ -31,7 +31,7 @@ func (b *Query) Insert(
 	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	columns, values := insertedValues()
-	columnNames := getInsertQueryColumnNames(columns)
+	columnames := getInsertQueryColumnames(columns)
 	valuePlaceholders := strings.TrimSuffix(
 		strings.Repeat("?, ", len(values)),
 		", ",
@@ -39,7 +39,7 @@ func (b *Query) Insert(
 	query := fmt.Sprintf(
 		"INSERT INTO \"%s\" (%s) VALUES (%s)",
 		tableName,
-		columnNames,
+		columnames,
 		valuePlaceholders,
 	)
 	return query, values
@@ -55,7 +55,7 @@ func (b *Query) InsertMany(
 	}
 
 	columns, _ := insertedValues[0]()
-	columnNames := getInsertQueryColumnNames(columns)
+	columnames := getInsertQueryColumnames(columns)
 
 	var allValues []any
 	valuePlaceholders := make([]string, len(insertedValues))
@@ -72,7 +72,7 @@ func (b *Query) InsertMany(
 	query := fmt.Sprintf(
 		"INSERT INTO \"%s\" (%s) VALUES %s",
 		tableName,
-		columnNames,
+		columnames,
 		strings.Join(valuePlaceholders, ", "),
 	)
 	return query, allValues
@@ -420,7 +420,7 @@ func getLimitOffsetClauseFromPage(page *database.Page) string {
 func columnSelectorToString(colSel database.ColumnSelector) string {
 	return fmt.Sprintf("\"%s\".\"%s\"",
 		colSel.Table,
-		colSel.Columnn,
+		colSel.Column,
 	)
 }
 
@@ -456,7 +456,7 @@ func projectionToString(proj database.Projection) string {
 	return builder.String()
 }
 
-func getInsertQueryColumnNames(columns []string) string {
+func getInsertQueryColumnames(columns []string) string {
 	wrappedColumns := make([]string, len(columns))
 	for i, col := range columns {
 		wrappedColumns[i] = "\"" + col + "\""
@@ -547,9 +547,9 @@ func processSelector(selector database.Selector) (string, []any) {
 func processInSelector(selector database.Selector) (string, []any) {
 	var col string
 	if selector.Table != "" {
-		col = fmt.Sprintf("\"%s\".\"%s\"", selector.Table, selector.Field)
+		col = fmt.Sprintf("\"%s\".\"%s\"", selector.Table, selector.Column)
 	} else {
-		col = fmt.Sprintf("\"%s\"", selector.Field)
+		col = fmt.Sprintf("\"%s\"", selector.Column)
 	}
 
 	value := reflect.ValueOf(selector.Value)
@@ -566,11 +566,11 @@ func processDefaultSelector(selector database.Selector) (string, []any) {
 		return processNullSelector(selector)
 	}
 	if selector.Table == "" {
-		return fmt.Sprintf("\"%s\" %s ?", selector.Field,
+		return fmt.Sprintf("\"%s\" %s ?", selector.Column,
 			selector.Predicate), []any{selector.Value}
 	}
 	return fmt.Sprintf("\"%s\".\"%s\" %s ?", selector.Table,
-		selector.Field, selector.Predicate), []any{selector.Value}
+		selector.Column, selector.Predicate), []any{selector.Value}
 }
 
 func processNullSelector(selector database.Selector) (string, []any) {
@@ -585,10 +585,10 @@ func processNullSelector(selector database.Selector) (string, []any) {
 
 func buildNullClause(selector database.Selector, clause string) string {
 	if selector.Table == "" {
-		return fmt.Sprintf("\"%s\" %s %s", selector.Field, clause, null)
+		return fmt.Sprintf("\"%s\" %s %s", selector.Column, clause, null)
 	}
 	return fmt.Sprintf("\"%s\".\"%s\" %s %s",
-		selector.Table, selector.Field, clause, null)
+		selector.Table, selector.Column, clause, null)
 }
 
 func createPlaceholdersAndValues(value reflect.Value) (string, []any) {

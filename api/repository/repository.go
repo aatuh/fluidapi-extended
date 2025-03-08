@@ -45,12 +45,12 @@ type DefaultReaderRepo[T database.Getter] struct {
 
 // NewDefaultReaderRepo returns a new DefaultReaderRepo.
 func NewDefaultReaderRepo[T database.Getter](
-	qb database.QueryBuilder,
-	ec database.ErrorChecker,
+	queryBuilder database.QueryBuilder,
+	errorChecker database.ErrorChecker,
 ) *DefaultReaderRepo[T] {
 	return &DefaultReaderRepo[T]{
-		QueryBuilder: qb,
-		ErrorChecker: ec,
+		QueryBuilder: queryBuilder,
+		ErrorChecker: errorChecker,
 	}
 }
 
@@ -60,8 +60,13 @@ func (r *DefaultReaderRepo[T]) GetOne(
 	entityFactoryFn GetterFactoryFn[T],
 	getOptions *database.GetOptions,
 ) (T, error) {
-	return database.Get(preparer, getOptions, entityFactoryFn,
-		r.QueryBuilder, r.ErrorChecker)
+	return database.Get(
+		preparer,
+		getOptions,
+		entityFactoryFn,
+		r.QueryBuilder,
+		r.ErrorChecker,
+	)
 }
 
 // GetMany retrieves multiple records from the DB.
@@ -70,8 +75,13 @@ func (r *DefaultReaderRepo[T]) GetMany(
 	entityFactoryFn GetterFactoryFn[T],
 	getOptions *database.GetOptions,
 ) ([]T, error) {
-	return database.GetMany(preparer, getOptions, entityFactoryFn,
-		r.QueryBuilder, r.ErrorChecker)
+	return database.GetMany(
+		preparer,
+		getOptions,
+		entityFactoryFn,
+		r.QueryBuilder,
+		r.ErrorChecker,
+	)
 }
 
 // Count returns a record count.
@@ -89,6 +99,7 @@ func (r *DefaultReaderRepo[T]) Count(
 		},
 		entityFactoryFn,
 		r.QueryBuilder,
+		r.ErrorChecker,
 	)
 }
 
@@ -131,9 +142,7 @@ func NewDefaultMutatorRepo[T database.Mutator](
 func (r *DefaultMutatorRepo[T]) Insert(
 	preparer database.Preparer, mutator T,
 ) (T, error) {
-	_, err := database.Insert(
-		preparer, mutator, r.QueryBuilder, r.ErrorChecker,
-	)
+	_, err := database.Insert(preparer, mutator, r.QueryBuilder, r.ErrorChecker)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -149,8 +158,12 @@ func (r *DefaultMutatorRepo[T]) Update(
 	updateFields database.UpdateFields,
 ) (int64, error) {
 	return database.Update(
-		preparer, updater, selectors, updateFields,
-		r.QueryBuilder, r.ErrorChecker,
+		preparer,
+		updater,
+		selectors,
+		updateFields,
+		r.QueryBuilder,
+		r.ErrorChecker,
 	)
 }
 
@@ -162,8 +175,12 @@ func (r *DefaultMutatorRepo[T]) Delete(
 	deleteOpts *database.DeleteOptions,
 ) (int64, error) {
 	return database.Delete(
-		preparer, deleter, selectors, deleteOpts,
+		preparer,
+		deleter,
+		selectors,
+		deleteOpts,
 		r.QueryBuilder,
+		r.ErrorChecker,
 	)
 }
 

@@ -24,7 +24,7 @@ func Insert(
 	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	columns, values := insertedValues()
-	columnNames := getInsertQueryColumnNames(columns)
+	columnames := getInsertQueryColumnames(columns)
 
 	valuePlaceholders := strings.TrimSuffix(
 		strings.Repeat("?, ", len(values)),
@@ -34,7 +34,7 @@ func Insert(
 	query := fmt.Sprintf(
 		"INSERT INTO `%s` (%s) VALUES (%s)",
 		tableName,
-		columnNames,
+		columnames,
 		valuePlaceholders,
 	)
 
@@ -54,7 +54,7 @@ func InsertMany(
 	}
 
 	columns, _ := insertedValues[0]()
-	columnNames := getInsertQueryColumnNames(columns)
+	columnames := getInsertQueryColumnames(columns)
 
 	var allValues []any
 	valuePlaceholders := make([]string, len(insertedValues))
@@ -71,7 +71,7 @@ func InsertMany(
 	query := fmt.Sprintf(
 		"INSERT INTO `%s` (%s) VALUES %s",
 		tableName,
-		columnNames,
+		columnames,
 		strings.Join(valuePlaceholders, ", "),
 	)
 
@@ -426,11 +426,11 @@ func getOrderClauseFromOrders(orders []database.Order) string {
 	return strings.TrimSuffix(orderClause, ",")
 }
 
-func columnSelectorToString(columnnSelector database.ColumnSelector) string {
+func columnSelectorToString(columnSelector database.ColumnSelector) string {
 	return fmt.Sprintf(
 		"`%s`.`%s`",
-		columnnSelector.Table,
-		columnnSelector.Columnn,
+		columnSelector.Table,
+		columnSelector.Column,
 	)
 }
 
@@ -465,13 +465,13 @@ func projectionToString(projection database.Projection) string {
 	return builder.String()
 }
 
-func getInsertQueryColumnNames(columns []string) string {
+func getInsertQueryColumnames(columns []string) string {
 	wrappedColumns := make([]string, len(columns))
 	for i, column := range columns {
 		wrappedColumns[i] = "`" + column + "`"
 	}
-	columnNames := strings.Join(wrappedColumns, ", ")
-	return columnNames
+	columnames := strings.Join(wrappedColumns, ", ")
+	return columnames
 }
 
 func projectionsToStrings(projections []database.Projection) []string {
@@ -504,11 +504,11 @@ func joinClause(joins []database.Join) string {
 }
 
 func whereClause(selectors []database.Selector) (string, []any) {
-	whereColumnns, whereValues := processSelectors(selectors)
+	whereColumns, whereValues := processSelectors(selectors)
 
 	var whereClause string
-	if len(whereColumnns) > 0 {
-		whereClause = "WHERE " + strings.Join(whereColumnns, " AND ")
+	if len(whereColumns) > 0 {
+		whereClause = "WHERE " + strings.Join(whereColumns, " AND ")
 	}
 
 	return strings.Trim(whereClause, " "), whereValues
@@ -566,7 +566,7 @@ func processInSelector(selector database.Selector) (string, []any) {
 		column := fmt.Sprintf(
 			"`%s`.`%s` %s (%s)",
 			selector.Table,
-			selector.Field,
+			selector.Column,
 			in,
 			placeholders,
 		)
@@ -576,7 +576,7 @@ func processInSelector(selector database.Selector) (string, []any) {
 	return fmt.Sprintf(
 		"`%s`.`%s` %s (?)",
 		selector.Table,
-		selector.Field,
+		selector.Column,
 		in,
 	), []any{selector.Value}
 }
@@ -588,14 +588,14 @@ func processDefaultSelector(selector database.Selector) (string, []any) {
 	if selector.Table == "" {
 		return fmt.Sprintf(
 			"`%s` %s ?",
-			selector.Field,
+			selector.Column,
 			selector.Predicate,
 		), []any{selector.Value}
 	} else {
 		return fmt.Sprintf(
 			"`%s`.`%s` %s ?",
 			selector.Table,
-			selector.Field,
+			selector.Column,
 			selector.Predicate,
 		), []any{selector.Value}
 	}
@@ -613,12 +613,12 @@ func processNullSelector(selector database.Selector) (string, []any) {
 
 func buildNullClause(selector database.Selector, clause string) string {
 	if selector.Table == "" {
-		return fmt.Sprintf("`%s` %s %s", selector.Field, clause, null)
+		return fmt.Sprintf("`%s` %s %s", selector.Column, clause, null)
 	}
 	return fmt.Sprintf(
 		"`%s`.`%s` %s %s",
 		selector.Table,
-		selector.Field,
+		selector.Column,
 		clause,
 		null,
 	)

@@ -105,8 +105,8 @@ var (
 	}.With(GenericErrors...)
 )
 
-// GenericEndpointHandler builds the endpoint definition for any operation.
-func GenericEndpointHandler[Input any](
+// GenericEndpointDefinition builds the endpoint definition for any operation.
+func GenericEndpointDefinition[Input any](
 	url string,
 	method string,
 	inputHandler InputHandler,

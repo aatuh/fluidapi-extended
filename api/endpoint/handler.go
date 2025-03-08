@@ -92,7 +92,7 @@ func (h *EndpointHandler[Input]) Handle(
 
 // Build constructs the endpoint definition using the middleware stack.
 func (h *EndpointHandler[Input]) Build(
-	stack endpoint.Stack,
+	stack *endpoint.Stack,
 ) *endpoint.Definition {
 	return &endpoint.Definition{
 		URL:    h.url,

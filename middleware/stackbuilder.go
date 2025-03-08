@@ -9,7 +9,7 @@ import (
 
 // StackBuilder builds a middleware stack.
 type StackBuilder struct {
-	stack endpoint.Stack
+	stack *endpoint.Stack
 }
 
 // NewStackBuilder returns a new instance.
@@ -19,33 +19,34 @@ func NewStackBuilder(
 	requestLoggerFn func(r *http.Request) func(messages ...any),
 ) *StackBuilder {
 	return &StackBuilder{
-		stack: endpoint.Stack{
+		stack: endpoint.NewStack(
 			*RequestHandlerMiddlewareWrapper(
 				requestIDFn,
 				panicHandlerLoggerFn,
 				requestLoggerFn,
 			),
-		},
+		),
 	}
 }
 
 // Build returns the middleware stack.
-func (b *StackBuilder) Build() endpoint.Stack {
+func (b *StackBuilder) Build() *endpoint.Stack {
 	return b.stack
 }
 
 // MustAddMiddleware adds middleware to the stack and panics if it fails.
 func (b *StackBuilder) MustAddMiddleware(
 	wrapper ...endpoint.Wrapper,
-) StackBuilder {
+) *StackBuilder {
 	for i := range wrapper {
-		success := b.stack.InsertAfterID(
+		stack, success := b.stack.InsertAfter(
 			RequestHandlerMiddlewareID,
 			wrapper[i],
 		)
 		if !success {
 			panic(fmt.Sprintf("Failed to add middleware: %s", wrapper[i].ID))
 		}
+		b.stack = stack
 	}
-	return *b
+	return b
 }

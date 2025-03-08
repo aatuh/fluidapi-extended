@@ -16,14 +16,14 @@ type EntityOption[T any] func(T)
 func MustGetSelector(
 	tableName string,
 	entity any,
-	fieldName string,
+	column string,
 	predicate database.Predicate,
 	value any,
 ) *database.Selector {
-	mustValidateDBMapping(entity, fieldName, value)
+	mustValidateDBMapping(entity, column, value)
 	return &database.Selector{
 		Table:     tableName,
-		Field:     fieldName,
+		Column:    column,
 		Predicate: predicate,
 		Value:     value,
 	}
