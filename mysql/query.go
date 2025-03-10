@@ -8,6 +8,7 @@ import (
 	"github.com/pakkasys/fluidapi/database"
 )
 
+// Constants for comparison operators.
 const (
 	in    = "IN"
 	is    = "IS"
@@ -15,13 +16,20 @@ const (
 	null  = "NULL"
 )
 
+// Query is a query builder for MySQL.
+type Query struct{}
+
 // Insert returns the query and values to insert an entity.
 //
+// Parameters:
 //   - tableName: The name of the database table.
 //   - insertedValues: Function used to get the columns and values to insert.
-func Insert(
-	tableName string,
-	insertedValues database.InsertedValuesFn,
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Insert(
+	tableName string, insertedValues database.InsertedValuesFn,
 ) (string, []any) {
 	columns, values := insertedValues()
 	columnames := getInsertQueryColumnames(columns)
@@ -43,11 +51,15 @@ func Insert(
 
 // InsertMany returns the query and values to insert multiple entities.
 //
+// Parameters:
 //   - tableName: The name of the database table.
 //   - insertedValues: Functions used to get the columns and values to insert.
-func InsertMany(
-	tableName string,
-	insertedValues []database.InsertedValuesFn,
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) InsertMany(
+	tableName string, insertedValues []database.InsertedValuesFn,
 ) (string, []any) {
 	if len(insertedValues) == 0 {
 		return "", nil
@@ -80,10 +92,15 @@ func InsertMany(
 
 // UpsertMany creates an upsert query for a list of entities.
 //
+// Parameters:
 //   - tableName: The name of the database table.
 //   - insertedValue: The function used to get the columns and values to insert.
 //   - updateProjections: The projections of the entities to update.
-func UpsertMany(
+//
+// Returns:
+//   - string: The upsert query.
+//   - []any: The values.
+func (q *Query) UpsertMany(
 	tableName string,
 	insertedValues []database.InsertedValuesFn,
 	updateProjections []database.Projection,
@@ -101,7 +118,7 @@ func UpsertMany(
 		)
 	}
 
-	insertQueryPart, allValues := InsertMany(tableName, insertedValues)
+	insertQueryPart, allValues := q.InsertMany(tableName, insertedValues)
 
 	builder := strings.Builder{}
 	builder.WriteString(insertQueryPart)
@@ -118,67 +135,63 @@ func UpsertMany(
 //
 //   - tableName: The name of the database table.
 //   - dbOptions: The options for the query.
-func Get(tableName string, dbOptions *database.GetOptions) (string, []any) {
-	whereClause, whereValues := whereClause(dbOptions.Selectors)
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Get(
+	tableName string, opts *database.GetOptions,
+) (string, []any) {
+	whereClause, whereValues := whereClause(opts.Selectors)
 
 	builder := strings.Builder{}
 	builder.WriteString(fmt.Sprintf(
 		"SELECT %s",
-		strings.Join(projectionsToStrings(dbOptions.Projections), ","),
+		strings.Join(projectionsToStrings(opts.Projections), ","),
 	))
 	builder.WriteString(fmt.Sprintf(" FROM `%s`", tableName))
-	if len(dbOptions.Joins) != 0 {
-		builder.WriteString(" " + joinClause(dbOptions.Joins))
+	if len(opts.Joins) != 0 {
+		builder.WriteString(" " + joinClause(opts.Joins))
 	}
 	if whereClause != "" {
 		builder.WriteString(" " + whereClause)
 	}
-	if len(dbOptions.Orders) != 0 {
-		builder.WriteString(" " + getOrderClauseFromOrders(dbOptions.Orders))
+	if len(opts.Orders) != 0 {
+		builder.WriteString(" " + getOrderClauseFromOrders(opts.Orders))
 	}
-	if dbOptions.Page != nil {
-		builder.WriteString(" " + GetLimitOffsetClauseFromPage(dbOptions.Page))
+	if opts.Page != nil {
+		builder.WriteString(" " + getLimitOffsetClauseFromPage(opts.Page))
 	}
-	if dbOptions.Lock {
+	if opts.Lock {
 		builder.WriteString(" FOR UPDATE")
 	}
 
 	return builder.String(), whereValues
 }
 
-// TODO: Implement stringer instead
-// TODO: Create separate database layer for page
-func GetLimitOffsetClauseFromPage(page *database.Page) string {
-	if page == nil {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"LIMIT %d OFFSET %d",
-		page.Limit,
-		page.Offset,
-	)
-}
-
 // Count returns a count query.
 //
+// Parameters:
 //   - tableName: The name of the database table.
 //   - dbOptions: The options for the query.
-func Count(
-	tableName string,
-	dbOptions *database.CountOptions,
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Count(
+	tableName string, opts *database.CountOptions,
 ) (string, []any) {
-	whereClause, whereValues := whereClause(dbOptions.Selectors)
-	joinStmt := joinClause(dbOptions.Joins)
+	whereClause, whereValues := whereClause(opts.Selectors)
+	joinStmt := joinClause(opts.Joins)
 
-	if dbOptions.Page != nil {
+	if opts.Page != nil {
 		// Build the inner query with pagination.
 		innerQuery := strings.Trim(fmt.Sprintf(
 			"SELECT * FROM `%s` %s %s %s",
 			tableName,
 			joinStmt,
 			whereClause,
-			GetLimitOffsetClauseFromPage(dbOptions.Page),
+			getLimitOffsetClauseFromPage(opts.Page),
 		), " ")
 
 		// Wrap the inner query in an outer COUNT(*) query.
@@ -202,17 +215,20 @@ func Count(
 
 // UpdateQuery returns the SQL query and values for an update query.
 //
+// Parameters:
 //   - tableName: The name of the database table.
-//   - updateFields: The fields to update.
+//   - updates: The fields to update.
 //   - selectors: The selectors for the entities to update.
-func UpdateQuery(
-	tableName string,
-	updateFields []database.UpdateField,
-	selectors []database.Selector,
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) UpdateQuery(
+	tableName string, updates []database.Update, selectors []database.Selector,
 ) (string, []any) {
 	whereColumns, whereValues := processSelectors(selectors)
 
-	setClause, values := getSetClause(updateFields)
+	setClause, values := getSetClause(updates)
 	values = append(values, whereValues...)
 
 	builder := strings.Builder{}
@@ -230,10 +246,15 @@ func UpdateQuery(
 
 // Delete returns the SQL query string and the values for the query.
 //
+// Parameters:
 //   - tableName: The name of the database table.
 //   - selectors: The selectors for the entities to delete.
 //   - opts: The options for the query.
-func Delete(
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Delete(
 	tableName string,
 	selectors []database.Selector,
 	opts *database.DeleteOptions,
@@ -261,30 +282,33 @@ func Delete(
 // If ifNotExists is true, the query will include the IF NOT EXISTS clause.
 // If charset or collate are non-empty, they are appended as options.
 //
+// Parameters:
 //   - dbName: The name of the database to create.
 //   - ifNotExists: If true, the query will include the IF NOT EXISTS clause.
 //   - charset: The character set to use for the database.
 //   - collate: The collation to use for the database.
-func CreateDatabaseQuery(
-	dbName string,
-	ifNotExists bool,
-	charset string,
-	collate string,
+//
+// Returns:
+//   - string: The SQL query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) CreateDatabaseQuery(
+	dbName string, ifNotExists bool, charset string, collate string,
 ) (string, []any, error) {
-	var b strings.Builder
-	b.WriteString("CREATE DATABASE ")
+	var builder strings.Builder
+	builder.WriteString("CREATE DATABASE ")
 	if ifNotExists {
-		b.WriteString("IF NOT EXISTS ")
+		builder.WriteString("IF NOT EXISTS ")
 	}
-	b.WriteString(fmt.Sprintf("`%s`", dbName))
+	builder.WriteString(fmt.Sprintf("`%s`", dbName))
 	if charset != "" {
-		b.WriteString(fmt.Sprintf(" DEFAULT CHARACTER SET %s", charset))
+		builder.WriteString(fmt.Sprintf(" DEFAULT CHARACTER SET %s", charset))
 	}
 	if collate != "" {
-		b.WriteString(fmt.Sprintf(" COLLATE = %s", collate))
+		builder.WriteString(fmt.Sprintf(" COLLATE = %s", collate))
 	}
-	b.WriteString(";")
-	return b.String(), nil, nil
+	builder.WriteString(";")
+	return builder.String(), nil, nil
 }
 
 // CreateTableQuery generates a SQL query for creating a table.
@@ -294,20 +318,20 @@ func CreateDatabaseQuery(
 //   - constraints: additional table constraints as raw strings (e.g. unique
 //     keys or composite primary keys).
 //   - options: extra table options such as engine, charset and collate.
-func CreateTableQuery(
+func (q *Query) CreateTableQuery(
 	tableName string,
 	ifNotExists bool,
 	columns []database.ColumnDefinition,
 	constraints []string,
 	options database.TableOptions,
 ) (string, []any, error) {
-	var b strings.Builder
+	var builder strings.Builder
 
-	b.WriteString("CREATE TABLE ")
+	builder.WriteString("CREATE TABLE ")
 	if ifNotExists {
-		b.WriteString("IF NOT EXISTS ")
+		builder.WriteString("IF NOT EXISTS ")
 	}
-	b.WriteString(fmt.Sprintf("`%s` (\n", tableName))
+	builder.WriteString(fmt.Sprintf("`%s` (\n", tableName))
 
 	var defs []string
 	// Build column definitions.
@@ -345,27 +369,33 @@ func CreateTableQuery(
 	for _, constraint := range constraints {
 		defs = append(defs, "  "+constraint)
 	}
-	b.WriteString(strings.Join(defs, ",\n"))
-	b.WriteString("\n)")
+	builder.WriteString(strings.Join(defs, ",\n"))
+	builder.WriteString("\n)")
 
 	// Append table options.
 	if options.Engine != "" {
-		b.WriteString(fmt.Sprintf(" ENGINE = %s", options.Engine))
+		builder.WriteString(fmt.Sprintf(" ENGINE = %s", options.Engine))
 	}
 	if options.Charset != "" {
-		b.WriteString(fmt.Sprintf(" DEFAULT CHARSET = %s", options.Charset))
+		builder.WriteString(fmt.Sprintf(" DEFAULT CHARSET = %s", options.Charset))
 	}
 	if options.Collate != "" {
-		b.WriteString(fmt.Sprintf(" COLLATE = %s", options.Collate))
+		builder.WriteString(fmt.Sprintf(" COLLATE = %s", options.Collate))
 	}
-	b.WriteString(";")
-	return b.String(), nil, nil
+	builder.WriteString(";")
+	return builder.String(), nil, nil
 }
 
 // UseDatabaseQuery generates a SQL query to switch to a specified database.
 //
+// Parameters:
 //   - dbName: The name of the database to switch to.
-func UseDatabaseQuery(dbName string) (string, []any, error) {
+//
+// Returns:
+//   - string: The SQL query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) UseDatabaseQuery(dbName string) (string, []any, error) {
 	return fmt.Sprintf("USE `%s`;", dbName), nil, nil
 }
 
@@ -374,9 +404,15 @@ func UseDatabaseQuery(dbName string) (string, []any, error) {
 // If the variable is "NAMES" (case-insensitive), the function uses the
 // syntax "SET NAMES 'value'"; otherwise it uses "SET variable = 'value'".
 //
+// Parameters:
 //   - variable: The name of the variable to set.
 //   - value: The value to set the variable to.
-func SetVariableQuery(variable string, value string) (string, []any, error) {
+//
+// Returns:
+//   - string: The SQL query.
+func (q *Query) SetVariableQuery(
+	variable string, value string,
+) (string, []any, error) {
 	upperVar := strings.ToUpper(variable)
 	if upperVar == "NAMES" {
 		return fmt.Sprintf("SET NAMES '%s';", value), nil, nil
@@ -387,53 +423,75 @@ func SetVariableQuery(variable string, value string) (string, []any, error) {
 // AdvisoryLock generates the query to acquire an advisory lock in MySQL.
 // The timeout parameter is specified in seconds.
 //
+// Parameters:
 //   - lockName: The name of the lock to acquire.
-func AdvisoryLock(lockName string, timeout int) (string, []any, error) {
+//   - timeout: The timeout for the lock.
+//
+// Returns:
+//   - string: The SQL query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) AdvisoryLock(
+	lockName string, timeout int,
+) (string, []any, error) {
 	return "SELECT GET_LOCK(?, ?);", []any{lockName, timeout}, nil
 }
 
 // AdvisoryUnlock generates the query to release an advisory lock in MySQL.
 //
+// Parameters:
 //   - lockName: The name of the lock to release.
 //   - timeout: The timeout for the lock.
-func AdvisoryUnlock(lockName string) (string, []any, error) {
+//
+// Returns:
+//   - string: The SQL query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) AdvisoryUnlock(lockName string) (string, []any, error) {
 	return "SELECT RELEASE_LOCK(?);", []any{lockName}, nil
 }
 
+// getLimitOffsetClauseFromPage returns the LIMIT and OFFSET clause for a page.
+func getLimitOffsetClauseFromPage(page *database.Page) string {
+	if page == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"LIMIT %d OFFSET %d",
+		page.Limit,
+		page.Offset,
+	)
+}
+
+// getOrderClauseFromOrders returns an ORDER BY clause.
 func getOrderClauseFromOrders(orders []database.Order) string {
 	if len(orders) == 0 {
 		return ""
 	}
-
 	orderClause := "ORDER BY"
 	for _, order := range orders {
 		if order.Table == "" {
 			orderClause += fmt.Sprintf(
-				" `%s` %s,",
-				order.Field,
-				order.Direction,
+				" `%s` %s,", order.Field, order.Direction,
 			)
 		} else {
 			orderClause += fmt.Sprintf(
-				" `%s`.`%s` %s,",
-				order.Table,
-				order.Field,
-				order.Direction,
+				" `%s`.`%s` %s,", order.Table, order.Field, order.Direction,
 			)
 		}
 	}
-
 	return strings.TrimSuffix(orderClause, ",")
 }
 
+// columnSelectorToString returns the string representation of a column
+// selector.
 func columnSelectorToString(columnSelector database.ColumnSelector) string {
 	return fmt.Sprintf(
-		"`%s`.`%s`",
-		columnSelector.Table,
-		columnSelector.Column,
+		"`%s`.`%s`", columnSelector.Table, columnSelector.Column,
 	)
 }
 
+// processSelectors processes selectors and returns conditions and values.
 func processSelectors(selectors []database.Selector) ([]string, []any) {
 	var whereColumns []string
 	var whereValues []any
@@ -445,26 +503,23 @@ func processSelectors(selectors []database.Selector) ([]string, []any) {
 	return whereColumns, whereValues
 }
 
+// projectionToString returns the string representation of a projection.
 func projectionToString(projection database.Projection) string {
 	builder := strings.Builder{}
-
 	if projection.Table == "" {
 		builder.WriteString(fmt.Sprintf("`%s`", projection.Column))
 	} else {
 		builder.WriteString(fmt.Sprintf(
-			"`%s`.`%s`",
-			projection.Table,
-			projection.Column,
+			"`%s`.`%s`", projection.Table, projection.Column,
 		))
 	}
-
 	if projection.Alias != "" {
 		builder.WriteString(fmt.Sprintf(" AS `%s`", projection.Alias))
 	}
-
 	return builder.String()
 }
 
+// getInsertQueryColumnames returns the string representation of column names.
 func getInsertQueryColumnames(columns []string) string {
 	wrappedColumns := make([]string, len(columns))
 	for i, column := range columns {
@@ -474,11 +529,11 @@ func getInsertQueryColumnames(columns []string) string {
 	return columnames
 }
 
+// projectionsToStrings returns the string representations of projections.
 func projectionsToStrings(projections []database.Projection) []string {
 	if len(projections) == 0 {
 		return []string{"*"}
 	}
-
 	projectionStrings := make([]string, len(projections))
 	for i, projection := range projections {
 		projectionStrings[i] = projectionToString(projection)
@@ -486,6 +541,7 @@ func projectionsToStrings(projections []database.Projection) []string {
 	return projectionStrings
 }
 
+// joinClause returns the string representation of a join clause.
 func joinClause(joins []database.Join) string {
 	var joinClause string
 	for _, join := range joins {
@@ -503,17 +559,17 @@ func joinClause(joins []database.Join) string {
 	return joinClause
 }
 
+// whereClause returns the string representation of a where clause.
 func whereClause(selectors []database.Selector) (string, []any) {
 	whereColumns, whereValues := processSelectors(selectors)
-
 	var whereClause string
 	if len(whereColumns) > 0 {
 		whereClause = "WHERE " + strings.Join(whereColumns, " AND ")
 	}
-
 	return strings.Trim(whereClause, " "), whereValues
 }
 
+// getWhereClause returns the string representation of a where clause.
 func getWhereClause(whereColumns []string) string {
 	whereClause := ""
 	if len(whereColumns) > 0 {
@@ -522,10 +578,10 @@ func getWhereClause(whereColumns []string) string {
 	return whereClause
 }
 
-func getSetClause(updates []database.UpdateField) (string, []any) {
+// getSetClause returns the string representation of a SET clause.
+func getSetClause(updates []database.Update) (string, []any) {
 	setClauseParts := make([]string, len(updates))
 	values := make([]any, len(updates))
-
 	for i, update := range updates {
 		setClauseParts[i] = fmt.Sprintf(
 			"%s = ?",
@@ -533,25 +589,24 @@ func getSetClause(updates []database.UpdateField) (string, []any) {
 		)
 		values[i] = update.Value
 	}
-
 	return strings.Join(setClauseParts, ", "), values
 }
 
+// writeDeleteOptions writes the delete options to the builder.
 func writeDeleteOptions(
-	builder *strings.Builder,
-	opts *database.DeleteOptions,
+	builder *strings.Builder, opts *database.DeleteOptions,
 ) {
 	orderClause := getOrderClauseFromOrders(opts.Orders)
 	if orderClause != "" {
 		builder.WriteString(" " + orderClause)
 	}
-
 	limit := opts.Limit
 	if limit > 0 {
 		builder.WriteString(fmt.Sprintf(" LIMIT %d", limit))
 	}
 }
 
+// processSelector processes a selector and returns a condition and values.
 func processSelector(selector database.Selector) (string, []any) {
 	if selector.Predicate == in {
 		return processInSelector(selector)
@@ -559,6 +614,7 @@ func processSelector(selector database.Selector) (string, []any) {
 	return processDefaultSelector(selector)
 }
 
+// processInSelector processes an IN selector and returns conditions and values.
 func processInSelector(selector database.Selector) (string, []any) {
 	value := reflect.ValueOf(selector.Value)
 	if value.Kind() == reflect.Slice {
@@ -574,13 +630,12 @@ func processInSelector(selector database.Selector) (string, []any) {
 	}
 	// If value is not a slice, treat as a single value
 	return fmt.Sprintf(
-		"`%s`.`%s` %s (?)",
-		selector.Table,
-		selector.Column,
-		in,
+		"`%s`.`%s` %s (?)", selector.Table, selector.Column, in,
 	), []any{selector.Value}
 }
 
+// processDefaultSelector processes a default selector and returns conditions
+// and values.
 func processDefaultSelector(selector database.Selector) (string, []any) {
 	if selector.Value == nil {
 		return processNullSelector(selector)
@@ -601,6 +656,8 @@ func processDefaultSelector(selector database.Selector) (string, []any) {
 	}
 }
 
+// processNullSelector processes a null selector and returns conditions and
+// values.
 func processNullSelector(selector database.Selector) (string, []any) {
 	if selector.Predicate == "=" {
 		return buildNullClause(selector, is), nil
@@ -611,19 +668,17 @@ func processNullSelector(selector database.Selector) (string, []any) {
 	return "", nil
 }
 
+// buildNullClause returns the string representation of a null clause.
 func buildNullClause(selector database.Selector, clause string) string {
 	if selector.Table == "" {
 		return fmt.Sprintf("`%s` %s %s", selector.Column, clause, null)
 	}
 	return fmt.Sprintf(
-		"`%s`.`%s` %s %s",
-		selector.Table,
-		selector.Column,
-		clause,
-		null,
+		"`%s`.`%s` %s %s", selector.Table, selector.Column, clause, null,
 	)
 }
 
+// createPlaceholdersAndValues creates placeholders and values for a slice.
 func createPlaceholdersAndValues(value reflect.Value) (string, []any) {
 	placeholderCount := value.Len()
 	placeholders := createPlaceholders(placeholderCount)
@@ -634,6 +689,7 @@ func createPlaceholdersAndValues(value reflect.Value) (string, []any) {
 	return placeholders, values
 }
 
+// createPlaceholders creates placeholders for a slice.
 func createPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }

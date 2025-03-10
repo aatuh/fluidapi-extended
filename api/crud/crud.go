@@ -3,32 +3,24 @@ package crud
 import (
 	"context"
 
+	"github.com/pakkasys/fluidapi-extended/api"
 	apiendpoint "github.com/pakkasys/fluidapi-extended/api/endpoint"
 	"github.com/pakkasys/fluidapi-extended/api/repository"
 	"github.com/pakkasys/fluidapi-extended/api/types"
-	"github.com/pakkasys/fluidapi-extended/middleware"
+	extendeddatabase "github.com/pakkasys/fluidapi-extended/database"
 	"github.com/pakkasys/fluidapi/database"
 	"github.com/pakkasys/fluidapi/endpoint"
 )
-
-// CRUDEntity is a helper constraint for entities that can be inserted,
-// retrieved, and updated (they must implement the necessary database
-// interfaces).
-type CRUDEntity interface {
-	database.Mutator
-	database.Getter
-	database.TableNamer
-}
 
 // ---------------------------------------------------------------------
 // Common Parameters & Operation Interface
 // ---------------------------------------------------------------------
 
 // CRUDCommonParams bundles configuration shared by all CRUD operations.
-type CRUDCommonParams[Entity CRUDEntity] struct {
+type CRUDCommonParams[Entity database.CRUDEntity] struct {
 	URL             string
 	ConnFn          repository.ConnFn
-	EntityFn        func(opts ...EntityOption[Entity]) Entity
+	EntityFn        func(opts ...extendeddatabase.EntityOption[Entity]) Entity
 	LoggerFactoryFn apiendpoint.LoggerFactoryFn
 	TableName       string
 	MutatorRepo     repository.MutatorRepo[Entity]
@@ -36,34 +28,37 @@ type CRUDCommonParams[Entity CRUDEntity] struct {
 	TxManager       repository.TxManager[Entity]
 	ConversionRules map[string]func(any) any
 	CustomRules     map[string]func(any) error
+	SystemId        string
 }
 
 // ---------------------------------------------------------------------
 // Create CRUD
 // ---------------------------------------------------------------------
 
-type CreateCRUD[CreateInput any, Entity CRUDEntity] struct {
+type CreateCRUD[CreateInput any, Entity database.CRUDEntity] struct {
 	CRUDCommonParams[Entity]
-	APIFields       types.APIFields
-	InputFactory    func() CreateInput
-	DBOptionFn      func(field string, value any) EntityOption[Entity]
+	APIFields    types.APIFields
+	InputFactory func() CreateInput
+	DBOptionFn   func(
+		field string, value any,
+	) extendeddatabase.EntityOption[Entity]
 	InputKey        string
 	OutputAPIFields types.APIFields
 	OutputKey       string
 	BeforeCallback  func(ctx context.Context, entity Entity, input *CreateInput) error
-	ErrorMapping    map[string]middleware.ExpectedError
+	ErrorMapping    map[string]api.ExpectedError
 }
 
-func NewCreateCRUD[CreateInput any, Entity CRUDEntity](
+func NewCreateCRUD[CreateInput any, Entity database.CRUDEntity](
 	common CRUDCommonParams[Entity],
 	apiFields types.APIFields,
 	inputFactory func() CreateInput,
-	dbOptionFn func(string, any) EntityOption[Entity],
+	dbOptionFn func(string, any) extendeddatabase.EntityOption[Entity],
 	inputKey string,
 	outputAPIFields types.APIFields,
 	outputKey string,
 	beforeCallback func(context.Context, Entity, *CreateInput) error,
-	errorMapping map[string]middleware.ExpectedError,
+	errorMapping map[string]api.ExpectedError,
 ) *CreateCRUD[CreateInput, Entity] {
 	return &CreateCRUD[CreateInput, Entity]{
 		CRUDCommonParams: common,
@@ -82,7 +77,8 @@ func (c *CreateCRUD[CreateInput, Entity]) EndpointHandler() *apiendpoint.Endpoin
 	opts := []apiendpoint.GenericEndpointOptions{}
 	if c.ErrorMapping != nil {
 		mappedErrors := mustApplyErrorMapping(
-			apiendpoint.CreateErrors,
+			apiendpoint.NewErrorBuilder(c.SystemId).
+				With(apiendpoint.CreateErrors()).Build(),
 			c.ErrorMapping,
 		)
 		opts = append(opts, apiendpoint.GenericEndpointOptions{
@@ -91,7 +87,7 @@ func (c *CreateCRUD[CreateInput, Entity]) EndpointHandler() *apiendpoint.Endpoin
 	}
 	return apiendpoint.GenericCreateDefinition(
 		c.URL,
-		apiendpoint.NewMapInputHandler(
+		api.NewMapInputHandler(
 			c.APIFields, c.ConversionRules, c.CustomRules,
 		),
 		c.InputFactory,
@@ -106,7 +102,7 @@ func (c *CreateCRUD[CreateInput, Entity]) EndpointHandler() *apiendpoint.Endpoin
 				var zero Entity
 				return zero, err
 			}
-			var dbOpts []EntityOption[Entity]
+			var dbOpts []extendeddatabase.EntityOption[Entity]
 			for col, value := range colsAndValues {
 				dbOpts = append(dbOpts, c.DBOptionFn(col, value))
 			}
@@ -127,6 +123,7 @@ func (c *CreateCRUD[CreateInput, Entity]) EndpointHandler() *apiendpoint.Endpoin
 		c.LoggerFactoryFn,
 		c.MutatorRepo,
 		c.TxManager,
+		c.SystemId,
 		opts...,
 	)
 }
@@ -140,7 +137,7 @@ func (c *CreateCRUD[CreateInput, Entity]) NewInput() any {
 // Get CRUD
 // ---------------------------------------------------------------------
 
-type GetCRUD[Entity CRUDEntity, Output any] struct {
+type GetCRUD[Entity database.CRUDEntity, Output any] struct {
 	CRUDCommonParams[Entity]
 	APIFields        types.APIFields
 	OutputAPIFields  types.APIFields
@@ -150,7 +147,7 @@ type GetCRUD[Entity CRUDEntity, Output any] struct {
 	BeforeCallback   func(context.Context, Entity, *apiendpoint.GetInput) error
 }
 
-func NewGetCRUD[Entity CRUDEntity, Output any](
+func NewGetCRUD[Entity database.CRUDEntity, Output any](
 	common CRUDCommonParams[Entity],
 	apiFields types.APIFields,
 	outputAPIFields types.APIFields,
@@ -173,7 +170,7 @@ func NewGetCRUD[Entity CRUDEntity, Output any](
 func (g *GetCRUD[Entity, Output]) EndpointHandler() *apiendpoint.EndpointHandler[apiendpoint.GetInput] {
 	return apiendpoint.GenericGetDefinition(
 		g.URL,
-		apiendpoint.NewMapInputHandler(
+		api.NewMapInputHandler(
 			g.APIFields, g.ConversionRules, g.CustomRules,
 		),
 		getAPIFieldToDBColumnMapping(
@@ -196,6 +193,7 @@ func (g *GetCRUD[Entity, Output]) EndpointHandler() *apiendpoint.EndpointHandler
 		g.LoggerFactoryFn,
 		g.ReaderRepo,
 		g.TxManager,
+		g.SystemId,
 	)
 }
 
@@ -207,13 +205,13 @@ func (g *GetCRUD[Entity, Output]) NewInput() any {
 // Update CRUD
 // ---------------------------------------------------------------------
 
-type UpdateCRUD[Entity CRUDEntity] struct {
+type UpdateCRUD[Entity database.CRUDEntity] struct {
 	CRUDCommonParams[Entity]
 	APIFields      types.APIFields
 	BeforeCallback func(context.Context, database.Mutator, *apiendpoint.UpdateInput) error
 }
 
-func NewUpdateCRUD[Entity CRUDEntity](
+func NewUpdateCRUD[Entity database.CRUDEntity](
 	common CRUDCommonParams[Entity],
 	apiFields types.APIFields,
 	beforeCallback func(context.Context, database.Mutator, *apiendpoint.UpdateInput) error,
@@ -228,7 +226,7 @@ func NewUpdateCRUD[Entity CRUDEntity](
 func (u *UpdateCRUD[Entity]) EndpointHandler() *apiendpoint.EndpointHandler[apiendpoint.UpdateInput] {
 	return apiendpoint.GenericUpdateDefinition(
 		u.URL,
-		apiendpoint.NewMapInputHandler(
+		api.NewMapInputHandler(
 			u.APIFields, u.ConversionRules, u.CustomRules,
 		),
 		getAPIFieldToDBColumnMapping(
@@ -239,6 +237,7 @@ func (u *UpdateCRUD[Entity]) EndpointHandler() *apiendpoint.EndpointHandler[apie
 		func() database.Mutator { return u.EntityFn() },
 		u.BeforeCallback,
 		u.LoggerFactoryFn,
+		u.SystemId,
 	)
 }
 
@@ -250,13 +249,13 @@ func (u *UpdateCRUD[Entity]) NewInput() any {
 // Delete CRUD
 // ---------------------------------------------------------------------
 
-type DeleteCRUD[Entity CRUDEntity] struct {
+type DeleteCRUD[Entity database.CRUDEntity] struct {
 	CRUDCommonParams[Entity]
 	APIFields      types.APIFields
 	BeforeCallback func(context.Context, database.Mutator, *apiendpoint.DeleteInput) error
 }
 
-func NewDeleteCRUD[Entity CRUDEntity](
+func NewDeleteCRUD[Entity database.CRUDEntity](
 	common CRUDCommonParams[Entity],
 	apiFields types.APIFields,
 	beforeCallback func(context.Context, database.Mutator, *apiendpoint.DeleteInput) error,
@@ -271,7 +270,7 @@ func NewDeleteCRUD[Entity CRUDEntity](
 func (d *DeleteCRUD[Entity]) EndpointHandler() *apiendpoint.EndpointHandler[apiendpoint.DeleteInput] {
 	return apiendpoint.GenericDeleteDefinition(
 		d.URL,
-		apiendpoint.NewMapInputHandler(
+		api.NewMapInputHandler(
 			d.APIFields, d.ConversionRules, d.CustomRules,
 		),
 		getAPIFieldToDBColumnMapping(
@@ -282,6 +281,7 @@ func (d *DeleteCRUD[Entity]) EndpointHandler() *apiendpoint.EndpointHandler[apie
 		func() database.Mutator { return d.EntityFn() },
 		d.BeforeCallback,
 		d.LoggerFactoryFn,
+		d.SystemId,
 	)
 }
 
@@ -293,10 +293,10 @@ func (d *DeleteCRUD[Entity]) NewInput() any {
 // CRUD Config & Builder
 // ---------------------------------------------------------------------
 
-type CRUDConfig[Entity CRUDEntity, CreateInput any, CreateOutput any, GetOutput any] struct {
+type CRUDConfig[Entity database.CRUDEntity, CreateInput any, CreateOutput any, GetOutput any] struct {
 	URL                  string
 	TableName            string
-	EntityFn             func(...EntityOption[Entity]) Entity
+	EntityFn             func(...extendeddatabase.EntityOption[Entity]) Entity
 	Predicates           map[string]endpoint.Predicates
 	Orderable            []string
 	ConnFn               repository.ConnFn
@@ -308,7 +308,7 @@ type CRUDConfig[Entity CRUDEntity, CreateInput any, CreateOutput any, GetOutput 
 	BeforeGetCallback    func(context.Context, Entity, *apiendpoint.GetInput) error
 	BeforeUpdateCallback func(context.Context, database.Mutator, *apiendpoint.UpdateInput) error
 	BeforeDeleteCallback func(context.Context, database.Mutator, *apiendpoint.DeleteInput) error
-	ErrorMapping         map[string]middleware.ExpectedError
+	ErrorMapping         map[string]api.ExpectedError
 	LoggerFactoryFn      apiendpoint.LoggerFactoryFn
 	MutatorRepo          repository.MutatorRepo[Entity]
 	ReaderRepo           repository.ReaderRepo[Entity]
@@ -324,7 +324,7 @@ type CRUDDefinitions struct {
 	Delete *endpoint.Definition
 }
 
-type CRUDBuilder[Entity CRUDEntity, CreateInput any,
+type CRUDBuilder[Entity database.CRUDEntity, CreateInput any,
 	CreateOutput any, GetOutput any] struct {
 	Config     CRUDConfig[Entity, CreateInput, CreateOutput, GetOutput]
 	createFlag bool
@@ -334,7 +334,7 @@ type CRUDBuilder[Entity CRUDEntity, CreateInput any,
 }
 
 func NewCRUDBuilder[
-	Entity CRUDEntity,
+	Entity database.CRUDEntity,
 	CreateInput any,
 	CreateOutput any,
 	GetOutput any,
@@ -377,14 +377,16 @@ func (b *CRUDBuilder[Entity, CreateInput, CreateOutput,
 	return b
 }
 
-type CRUDEndpoints[Entity CRUDEntity, CreateInput any, CreateOutput any, GetOutput any] struct {
+type CRUDEndpoints[Entity database.CRUDEntity, CreateInput any, CreateOutput any, GetOutput any] struct {
 	Create *CreateCRUD[CreateInput, Entity]
 	Get    *GetCRUD[Entity, GetOutput]
 	Update *UpdateCRUD[Entity]
 	Delete *DeleteCRUD[Entity]
 }
 
-func (b *CRUDBuilder[Entity, CreateInput, CreateOutput, GetOutput]) BuildCRUDEndpoints() *CRUDEndpoints[Entity, CreateInput, CreateOutput, GetOutput] {
+func (b *CRUDBuilder[Entity, CreateInput, CreateOutput, GetOutput]) BuildCRUDEndpoints(
+	systemId string,
+) *CRUDEndpoints[Entity, CreateInput, CreateOutput, GetOutput] {
 	var endpoints CRUDEndpoints[Entity, CreateInput, CreateOutput, GetOutput]
 	common := CRUDCommonParams[Entity]{
 		URL:             b.Config.URL,
@@ -397,13 +399,14 @@ func (b *CRUDBuilder[Entity, CreateInput, CreateOutput, GetOutput]) BuildCRUDEnd
 		TxManager:       b.Config.TxManager,
 		ConversionRules: b.Config.ConversionRules,
 		CustomRules:     b.Config.CustomRules,
+		SystemId:        systemId,
 	}
 	if b.createFlag {
 		endpoints.Create = NewCreateCRUD(
 			common,
 			MustStructToAPIFields[CreateInput](b.Config.AllAPIFields),
 			func() CreateInput { return *new(CreateInput) },
-			WithOption[Entity],
+			extendeddatabase.WithOption[Entity],
 			b.Config.EntityName,
 			MustStructToAPIFields[CreateOutput](b.Config.AllAPIFields),
 			b.Config.EntityName,

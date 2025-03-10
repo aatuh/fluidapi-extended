@@ -1,4 +1,4 @@
-package endpoint
+package api
 
 import (
 	"errors"
@@ -8,26 +8,32 @@ import (
 	"strings"
 )
 
+// Validate is a struct that holds a map of custom validation rules.
 type Validate struct {
 	customRules map[string]func(any) error
 }
 
+// NewValidate creates a new Validate.
+//
+// Parameters:
+//   - customRules: A map of custom validation rules.
+//
+// Returns:
+//   - *Validate: The new Validate.
 func NewValidate(customRules map[string]func(any) error) *Validate {
 	return &Validate{
 		customRules: customRules,
 	}
 }
 
-// MustFromRules is like FromRules but panics on error.
-func (v *Validate) MustFromRules(rules []string) func(any) error {
-	val, err := v.FromRules(rules)
-	if err != nil {
-		panic(err)
-	}
-	return val
-}
-
 // FromRules creates a validator function from a list of rules.
+//
+// Parameters:
+//   - rules: A list of rules.
+//
+// Returns:
+//   - func(any) error: The validator function.
+//   - error: Any error that occurred during validation.
 func (v *Validate) FromRules(rules []string) (func(any) error, error) {
 	vType := strings.ToLower(rules[0])
 	if v.customRules[vType] != nil {
@@ -194,6 +200,17 @@ type StringValidator func(s string) error
 // WithString accepts a list of StringValidators and returns a function
 // that accepts any type, converts it to a string, and then pipes the string
 // through each validator in order.
+//
+// Example:
+//
+//	validator := WithString(RequiredString(), Length(10))
+//
+// Parameters:
+// - validators: A list of StringValidators
+//
+// Returns:
+//   - func(any) error: A function that accepts any type, converts it to a string,
+//     and pipes it through each validator in order.
 func (v *Validate) WithString(validators ...StringValidator) func(value any) error {
 	return func(value any) error {
 		s, err := v.toString(value)
@@ -210,6 +227,9 @@ func (v *Validate) WithString(validators ...StringValidator) func(value any) err
 }
 
 // RequiredString ensures the string is not empty.
+//
+// Returns:
+//   - StringValidator: A function that ensures the string is not empty.
 func (v *Validate) RequiredString() StringValidator {
 	return func(s string) error {
 		if strings.TrimSpace(s) == "" {
@@ -219,7 +239,14 @@ func (v *Validate) RequiredString() StringValidator {
 	}
 }
 
-// Length returns a validator that ensures the string is exactly n characters long.
+// Length returns a validator that ensures the string is exactly n characters
+// long.
+//
+// Parameters:
+// - n: The length of the string.
+//
+// Returns:
+// - StringValidator: The validator function.
 func (v *Validate) Length(n int) StringValidator {
 	return func(s string) error {
 		if len(s) != n {
@@ -229,7 +256,14 @@ func (v *Validate) Length(n int) StringValidator {
 	}
 }
 
-// MinLength returns a validator that ensures the string is at least n characters long.
+// MinLength returns a validator that ensures the string is at least n characters
+// long.
+//
+// Parameters:
+// - n: The minimum length of the string.
+//
+// Returns:
+// - StringValidator: The validator function.
 func (v *Validate) MinLength(n int) StringValidator {
 	return func(s string) error {
 		if len(s) < n {
@@ -239,7 +273,14 @@ func (v *Validate) MinLength(n int) StringValidator {
 	}
 }
 
-// MaxLength returns a validator that ensures the string is at most n characters long.
+// MaxLength returns a validator that ensures the string is at most n characters
+// long.
+//
+// Parameters:
+// - n: The maximum length of the string.
+//
+// Returns:
+// - StringValidator: The validator function.
 func (v *Validate) MaxLength(n int) StringValidator {
 	return func(s string) error {
 		if len(s) > n {
@@ -250,6 +291,12 @@ func (v *Validate) MaxLength(n int) StringValidator {
 }
 
 // OneOf returns a validator that ensures the string is one of the given values.
+//
+// Parameters:
+// - values: A list of allowed values.
+//
+// Returns:
+// - StringValidator: The validator function.
 func (v *Validate) OneOf(values ...string) StringValidator {
 	return func(s string) error {
 		for _, val := range values {
@@ -262,6 +309,9 @@ func (v *Validate) OneOf(values ...string) StringValidator {
 }
 
 // Email returns a validator that ensures the string is a valid email address.
+//
+// Returns:
+//   - StringValidator: The validator function.
 func (v *Validate) Email() StringValidator {
 	return func(s string) error {
 		if len(s) > 254 {
@@ -291,8 +341,19 @@ func (v *Validate) toString(value any) (string, error) {
 // IntValidator is a function that validates an int64.
 type IntValidator func(i int64) error
 
-// WithInt takes many IntValidators and returns a single one
-// that runs them in sequence.
+// WithInt takes many IntValidators and returns a single one that runs them in
+// sequence.
+//
+// Example:
+//
+//	v.WithInt(v.Min(0), v.Max(100))
+//
+// Parameters:
+// - validators: A list of IntValidators
+//
+// Returns:
+//   - func(any) error: A function that accepts any type, converts it to an
+//     int64,  and pipes it through each validator in order.
 func (v *Validate) WithInt(validators ...IntValidator) func(value any) error {
 	return func(value any) error {
 		i, err := v.toInt64(value)
@@ -310,6 +371,13 @@ func (v *Validate) WithInt(validators ...IntValidator) func(value any) error {
 
 // WithExplicitInt is similar to WithInt but it only accepts values of type
 // int64.
+//
+// Parameters:
+// - validators: A list of IntValidators
+//
+// Returns:
+//   - func(any) error: A function that accepts any type, converts it to an
+//     int64, and pipes it through each validator in order.
 func (v *Validate) WithExplicitInt(validators ...IntValidator) func(value any) error {
 	return func(value any) error {
 		i, err := v.toExplicitInt64(value)
@@ -326,6 +394,9 @@ func (v *Validate) WithExplicitInt(validators ...IntValidator) func(value any) e
 }
 
 // RequiredInt returns a validator that ensures an integer is not 0.
+//
+// Returns:
+//   - IntValidator: The validator function.
 func (v *Validate) RequiredInt() IntValidator {
 	return func(i int64) error {
 		if i == 0 {
@@ -336,6 +407,9 @@ func (v *Validate) RequiredInt() IntValidator {
 }
 
 // MinInt returns a validator that ensures an integer is at least min.
+//
+// Returns:
+//   - IntValidator: The validator function.
 func (v *Validate) MinInt(min int64) IntValidator {
 	return func(i int64) error {
 		if i < min {
@@ -346,6 +420,9 @@ func (v *Validate) MinInt(min int64) IntValidator {
 }
 
 // MaxInt returns a validator that ensures an integer is at most max.
+//
+// Returns:
+//   - IntValidator: The validator function.
 func (v *Validate) MaxInt(max int64) IntValidator {
 	return func(i int64) error {
 		if i > max {
@@ -399,7 +476,20 @@ func (v *Validate) WithBool(validators ...BoolValidator) func(value any) error {
 type SliceValidator func(s []any) error
 
 // WithSlice is a function that validates a slice.
-func (v *Validate) WithSlice(validators ...SliceValidator) func(value any) error {
+//
+// Example:
+//
+//	v.WithSlice(v.MinSliceLength(1), v.MaxSliceLength(10))
+//
+// Parameters:
+// - validators: A list of SliceValidators
+//
+// Returns:
+//   - func(any) error: A function that accepts any type, converts it to a
+//     slice, and pipes it through each validator in order.
+func (v *Validate) WithSlice(
+	validators ...SliceValidator,
+) func(value any) error {
 	return func(value any) error {
 		s, err := v.toSlice(value)
 		if err != nil {
@@ -414,7 +504,14 @@ func (v *Validate) WithSlice(validators ...SliceValidator) func(value any) error
 	}
 }
 
-// SliceLength returns a validator that ensures the slice is exactly n elements long.
+// SliceLength returns a validator that ensures the slice is exactly n elements
+// long.
+//
+// Parameters:
+// - n: The length of the slice.
+//
+// Returns:
+// - SliceValidator: The validator function.
 func (v *Validate) SliceLength(n int) SliceValidator {
 	return func(s []any) error {
 		if len(s) != n {
@@ -424,7 +521,14 @@ func (v *Validate) SliceLength(n int) SliceValidator {
 	}
 }
 
-// MinSliceLength returns a validator that ensures the slice is at least n elements long.
+// MinSliceLength returns a validator that ensures the slice is at least n
+// elements long.
+//
+// Parameters:
+// - n: The minimum length of the slice.
+//
+// Returns:
+// - SliceValidator: The validator function.
 func (v *Validate) MinSliceLength(n int) SliceValidator {
 	return func(s []any) error {
 		if len(s) < n {
@@ -434,7 +538,14 @@ func (v *Validate) MinSliceLength(n int) SliceValidator {
 	}
 }
 
-// MaxSliceLength returns a validator that ensures the slice is at most n elements long.
+// MaxSliceLength returns a validator that ensures the slice is at most n
+// elements long.
+//
+// Parameters:
+// - n: The maximum length of the slice.
+//
+// Returns:
+// - SliceValidator: The validator function.
 func (v *Validate) MaxSliceLength(n int) SliceValidator {
 	return func(s []any) error {
 		if len(s) > n {

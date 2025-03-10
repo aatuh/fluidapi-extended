@@ -8,6 +8,7 @@ import (
 	"github.com/pakkasys/fluidapi/database"
 )
 
+// Constants for comparison operators.
 const (
 	in    = "IN"
 	is    = "IS"
@@ -15,6 +16,7 @@ const (
 	null  = "NULL"
 )
 
+// Constants for SET statements.
 const (
 	SET_JOURNAL_MODE = "JOURNAL_MODE"
 	SET_FOREIGN_KEYS = "FOREIGN_KEYS"
@@ -24,9 +26,15 @@ const (
 type Query struct{}
 
 // Insert returns the query and values to insert an entity.
-//   - tableName: the name of the table.
-//   - insertedValues: a function that returns the columns and values to insert.
-func (b *Query) Insert(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - insertedValues: A function that returns the columns and values to insert.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Insert(
 	tableName string,
 	insertedValues database.InsertedValuesFn,
 ) (string, []any) {
@@ -46,7 +54,16 @@ func (b *Query) Insert(
 }
 
 // InsertMany returns the query and values to insert multiple entities.
-func (b *Query) InsertMany(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - insertedValues: A slice of functions that return the columns and values
+//     to insert.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) InsertMany(
 	tableName string,
 	insertedValues []database.InsertedValuesFn,
 ) (string, []any) {
@@ -81,8 +98,18 @@ func (b *Query) InsertMany(
 // UpsertMany creates an upsert query for a list of entities.
 // Note: SQLite does not support partial upsert like MySQL. This
 // implementation uses "INSERT OR REPLACE" which replaces the entire row.
-// The updateProjections are ignored.
-func (b *Query) UpsertMany(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - insertedValues: A slice of functions that return the columns and values
+//     to insert.
+//   - updateProjections: A slice of functions that return the columns and
+//     values to update.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) UpsertMany(
 	tableName string,
 	insertedValues []database.InsertedValuesFn,
 	updateProjections []database.Projection,
@@ -154,44 +181,60 @@ func (b *Query) UpsertMany(
 }
 
 // Get returns a SELECT query for retrieving entities.
-func (b *Query) Get(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - opts: The database options.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Get(
 	tableName string,
-	dbOptions *database.GetOptions,
+	opts *database.GetOptions,
 ) (string, []any) {
-	whereClause, whereValues := whereClause(dbOptions.Selectors)
+	whereClause, whereValues := whereClause(opts.Selectors)
 
 	builder := strings.Builder{}
 	builder.WriteString(fmt.Sprintf(
 		"SELECT %s",
-		strings.Join(projectionsToStrings(dbOptions.Projections), ","),
+		strings.Join(projectionsToStrings(opts.Projections), ","),
 	))
 	builder.WriteString(fmt.Sprintf(" FROM \"%s\"", tableName))
-	if len(dbOptions.Joins) != 0 {
-		builder.WriteString(" " + joinClause(dbOptions.Joins))
+	if len(opts.Joins) != 0 {
+		builder.WriteString(" " + joinClause(opts.Joins))
 	}
 	if whereClause != "" {
 		builder.WriteString(" " + whereClause)
 	}
-	if len(dbOptions.Orders) != 0 {
-		builder.WriteString(" " + getOrderClauseFromOrders(dbOptions.Orders))
+	if len(opts.Orders) != 0 {
+		builder.WriteString(" " + getOrderClauseFromOrders(opts.Orders))
 	}
-	if dbOptions.Page != nil {
-		builder.WriteString(" " + getLimitOffsetClauseFromPage(dbOptions.Page))
+	if opts.Page != nil {
+		builder.WriteString(" " + getLimitOffsetClauseFromPage(opts.Page))
 	}
 	// SQLite does not support FOR UPDATE locking.
 	return builder.String(), whereValues
 }
 
 // Count returns a query to count the entities.
-func (b *Query) Count(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - opts: The database options.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Count(
 	tableName string,
-	dbOptions *database.CountOptions,
+	opts *database.CountOptions,
 ) (string, []any) {
-	whereClause, whereValues := whereClause(dbOptions.Selectors)
-	joinStmt := joinClause(dbOptions.Joins)
+	whereClause, whereValues := whereClause(opts.Selectors)
+	joinStmt := joinClause(opts.Joins)
 
 	// If pagination is provided, wrap the limited query in a subquery.
-	if dbOptions.Page != nil {
+	if opts.Page != nil {
 		// Build the inner query.
 		innerBuilder := strings.Builder{}
 		innerBuilder.WriteString(fmt.Sprintf(
@@ -199,7 +242,7 @@ func (b *Query) Count(
 			tableName,
 			joinStmt,
 			whereClause,
-			getLimitOffsetClauseFromPage(dbOptions.Page),
+			getLimitOffsetClauseFromPage(opts.Page),
 		))
 		innerQuery := innerBuilder.String()
 
@@ -224,13 +267,22 @@ func (b *Query) Count(
 }
 
 // UpdateQuery returns the query and values for an UPDATE.
-func (b *Query) UpdateQuery(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - updates: The fields to update.
+//   - selectors: The selectors for the entities to update.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) UpdateQuery(
 	tableName string,
-	updateFields []database.UpdateField,
+	updates []database.Update,
 	selectors []database.Selector,
 ) (string, []any) {
 	whereColumns, whereValues := processSelectors(selectors)
-	setClause, values := getSetClause(updateFields)
+	setClause, values := getSetClause(updates)
 	values = append(values, whereValues...)
 
 	builder := strings.Builder{}
@@ -247,7 +299,16 @@ func (b *Query) UpdateQuery(
 }
 
 // Delete returns the query and values to delete entities.
-func (b *Query) Delete(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - selectors: The selectors for the entities to delete.
+//   - opts: The delete options.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+func (q *Query) Delete(
 	tableName string,
 	selectors []database.Selector,
 	opts *database.DeleteOptions,
@@ -272,22 +333,39 @@ func (b *Query) Delete(
 }
 
 // CreateDatabaseQuery for SQLite returns an empty string.
-func (b *Query) CreateDatabaseQuery(
-	dbName string,
-	ifNotExists bool,
-	charset string,
-	collate string,
+//
+// Returns:
+//   - string: The query. It is an empty string.
+//   - []any: The values. It is nil.
+//   - error: No error.
+func (q *Query) CreateDatabaseQuery(
+	_ string,
+	_ bool,
+	_ string,
+	_ string,
 ) (string, []any, error) {
 	return "", nil, nil
 }
 
 // CreateTableQuery returns the query and values to create a table.
-func (b *Query) CreateTableQuery(
+//
+// Parameters:
+//   - tableName: The name of the table.
+//   - ifNotExists: Whether to create the table if it already exists.
+//   - columns: The columns to create.
+//   - constraints: The constraints to add to the table.
+//   - opts: The table options.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) CreateTableQuery(
 	tableName string,
 	ifNotExists bool,
 	columns []database.ColumnDefinition,
 	constraints []string,
-	options database.TableOptions,
+	opts database.TableOptions,
 ) (string, []any, error) {
 	var builder strings.Builder
 
@@ -345,12 +423,28 @@ func (b *Query) CreateTableQuery(
 // UseDatabaseQuery is effectively a no-op for SQLite.
 // Since SQLite uses file-based databases, the concept of switching
 // databases isn’t applicable.
-func (b *Query) UseDatabaseQuery(dbName string) (string, []any, error) {
+//
+// Returns:
+//   - string: The query. It is an empty string.
+//   - []any: The values. It is nil.
+//   - error: No error.
+func (q *Query) UseDatabaseQuery(_ string) (string, []any, error) {
 	return "", nil, nil
 }
 
 // SetVariableQuery for SQLite might support only a subset of options.
-func (b *Query) SetVariableQuery(variable string, value string) (string, []any, error) {
+//
+// Parameters:
+//   - variable: The name of the variable to set.
+//   - value: The value to set the variable to.
+//
+// Returns:
+//   - string: The query.
+//   - []any: The values.
+//   - error: An error if the query could not be created.
+func (q *Query) SetVariableQuery(
+	variable string, value string,
+) (string, []any, error) {
 	upperVar := strings.ToUpper(variable)
 	switch upperVar {
 	case SET_JOURNAL_MODE:
@@ -398,12 +492,12 @@ func getOrderClauseFromOrders(orders []database.Order) string {
 }
 
 // AdvisoryLock for SQLite returns an empty string.
-func (b *Query) AdvisoryLock(lockName string, timeout int) (string, []any, error) {
+func (q *Query) AdvisoryLock(lockName string, timeout int) (string, []any, error) {
 	return "", nil, nil
 }
 
 // AdvisoryUnlock for SQLite returns an empty string.
-func (b *Query) AdvisoryUnlock(lockName string) (string, []any, error) {
+func (q *Query) AdvisoryUnlock(lockName string) (string, []any, error) {
 	return "", nil, nil
 }
 
@@ -456,6 +550,7 @@ func projectionToString(proj database.Projection) string {
 	return builder.String()
 }
 
+// getInsertQueryColumnames returns the string representation of column names.
 func getInsertQueryColumnames(columns []string) string {
 	wrappedColumns := make([]string, len(columns))
 	for i, col := range columns {
@@ -464,6 +559,7 @@ func getInsertQueryColumnames(columns []string) string {
 	return strings.Join(wrappedColumns, ", ")
 }
 
+// projectionsToStrings returns the string representations of projections.
 func projectionsToStrings(projections []database.Projection) []string {
 	if len(projections) == 0 {
 		return []string{"*"}
@@ -476,6 +572,7 @@ func projectionsToStrings(projections []database.Projection) []string {
 	return projStrings
 }
 
+// joinClause returns the string representation of a join clause.
 func joinClause(joins []database.Join) string {
 	var clause string
 	for _, join := range joins {
@@ -493,6 +590,7 @@ func joinClause(joins []database.Join) string {
 	return clause
 }
 
+// whereClause returns the string representation of a WHERE clause.
 func whereClause(selectors []database.Selector) (string, []any) {
 	whereCols, whereVals := processSelectors(selectors)
 
@@ -504,6 +602,7 @@ func whereClause(selectors []database.Selector) (string, []any) {
 	return strings.Trim(clause, " "), whereVals
 }
 
+// getWhereClause returns the string representation of a WHERE clause.
 func getWhereClause(whereColumns []string) string {
 	if len(whereColumns) > 0 {
 		return "WHERE " + strings.Join(whereColumns, " AND ")
@@ -511,7 +610,8 @@ func getWhereClause(whereColumns []string) string {
 	return ""
 }
 
-func getSetClause(updates []database.UpdateField) (string, []any) {
+// getSetClause returns the string representation of a SET clause.
+func getSetClause(updates []database.Update) (string, []any) {
 	setParts := make([]string, len(updates))
 	values := make([]any, len(updates))
 
@@ -523,6 +623,7 @@ func getSetClause(updates []database.UpdateField) (string, []any) {
 	return strings.Join(setParts, ", "), values
 }
 
+// writeDeleteOptions writes the delete options to the builder.
 func writeDeleteOptions(
 	builder *strings.Builder,
 	opts *database.DeleteOptions,
@@ -537,6 +638,7 @@ func writeDeleteOptions(
 	}
 }
 
+// processSelector processes a selector and returns conditions and values.
 func processSelector(selector database.Selector) (string, []any) {
 	if selector.Predicate == in {
 		return processInSelector(selector)
@@ -544,6 +646,7 @@ func processSelector(selector database.Selector) (string, []any) {
 	return processDefaultSelector(selector)
 }
 
+// processInSelector processes an IN selector and returns conditions and values.
 func processInSelector(selector database.Selector) (string, []any) {
 	var col string
 	if selector.Table != "" {
@@ -561,6 +664,8 @@ func processInSelector(selector database.Selector) (string, []any) {
 	return fmt.Sprintf("%s %s (?)", col, in), []any{selector.Value}
 }
 
+// processDefaultSelector processes a default selector and returns conditions
+// and values.
 func processDefaultSelector(selector database.Selector) (string, []any) {
 	if selector.Value == nil {
 		return processNullSelector(selector)
@@ -573,6 +678,8 @@ func processDefaultSelector(selector database.Selector) (string, []any) {
 		selector.Column, selector.Predicate), []any{selector.Value}
 }
 
+// processNullSelector processes a null selector and returns conditions and
+// values.
 func processNullSelector(selector database.Selector) (string, []any) {
 	if selector.Predicate == "=" {
 		return buildNullClause(selector, is), nil
@@ -583,6 +690,7 @@ func processNullSelector(selector database.Selector) (string, []any) {
 	return "", nil
 }
 
+// buildNullClause returns the string representation of a null clause.
 func buildNullClause(selector database.Selector, clause string) string {
 	if selector.Table == "" {
 		return fmt.Sprintf("\"%s\" %s %s", selector.Column, clause, null)
@@ -591,6 +699,7 @@ func buildNullClause(selector database.Selector, clause string) string {
 		selector.Table, selector.Column, clause, null)
 }
 
+// createPlaceholdersAndValues creates placeholders and values for a slice.
 func createPlaceholdersAndValues(value reflect.Value) (string, []any) {
 	placeholderCount := value.Len()
 	placeholders := createPlaceholders(placeholderCount)
@@ -601,6 +710,7 @@ func createPlaceholdersAndValues(value reflect.Value) (string, []any) {
 	return placeholders, values
 }
 
+// createPlaceholders creates placeholders for a slice.
 func createPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }

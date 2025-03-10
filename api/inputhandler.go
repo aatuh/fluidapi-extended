@@ -1,22 +1,43 @@
-package endpoint
+package api
 
 import (
 	"fmt"
 	"net/http"
 
 	"github.com/pakkasys/fluidapi-extended/api/types"
-	"github.com/pakkasys/fluidapi-extended/util"
 	"github.com/pakkasys/fluidapi/core"
 )
 
+// ValidationError represents a validation error
 var ValidationError = core.NewAPIError("VALIDATION_ERROR")
 
+// FieldError represents a field-level validation error
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ValidationErrorData contains a list of field-level validation errors
+type ValidationErrorData struct {
+	Errors []FieldError `json:"errors"`
+}
+
+// MapInputHandler handles the input of a request as a map.
 type MapInputHandler struct {
 	apiFields     types.APIFields
 	conversionMap map[string]func(any) any
 	customRules   map[string]func(any) error
 }
 
+// NewMapInputHandler creates a new MapInputHandler.
+//
+// Parameters:
+//   - apiFields: The APIFields to use for validation.
+//   - conversionMap: A map of conversion functions for fields.
+//   - customRules: A map of custom validation rules for fields.
+//
+// Returns:
+//   - *MapInputHandler: The new MapInputHandler.
 func NewMapInputHandler(
 	apiFields types.APIFields,
 	conversionMap map[string]func(any) any,
@@ -44,6 +65,14 @@ func NewMapInputHandler(
 
 // Handle processes the request input by creating a map presentation from it and
 // validating it.
+//
+// Parameters:
+//   - w: The HTTP response writer.
+//   - r: The HTTP request.
+//
+// Returns:
+//   - map[string]any: The map presentation of the input.
+//   - error: Any error that occurred during processing.
 func (h *MapInputHandler) Handle(
 	w http.ResponseWriter, r *http.Request,
 ) (map[string]any, error) {
@@ -52,8 +81,8 @@ func (h *MapInputHandler) Handle(
 		return nil, err
 	}
 	if err := h.validateMap(input, h.apiFields); err != nil {
-		return nil, ValidationError.WithData(util.ValidationErrorData{
-			Errors: []util.FieldError{
+		return nil, ValidationError.WithData(ValidationErrorData{
+			Errors: []FieldError{
 				{
 					Field:   "input",
 					Message: err.Error(),
@@ -76,7 +105,7 @@ func (h *MapInputHandler) pickMap(
 	}
 
 	// Pick the map.
-	return util.NewObjectPicker(util.NewURLEncoder(), h.conversionMap).
+	return NewObjectPicker(NewURLEncoder(), h.conversionMap).
 		PickMap(r, mapFieldConfig)
 }
 
@@ -88,9 +117,9 @@ func (h *MapInputHandler) getValidator() *Validate {
 // mapFieldConfigFromAPIFields converts an APIFields to a MapFieldConfig.
 func (h *MapInputHandler) mapFieldConfigFromAPIFields(
 	apiFields types.APIFields,
-) (*util.MapFieldConfig, error) {
-	cfg := &util.MapFieldConfig{
-		Fields: make(map[string]*util.MapFieldConfig),
+) (*MapFieldConfig, error) {
+	cfg := &MapFieldConfig{
+		Fields: make(map[string]*MapFieldConfig),
 	}
 	// Convert each field to a MapFieldConfig.
 	for _, field := range apiFields {
@@ -104,7 +133,7 @@ func (h *MapInputHandler) mapFieldConfigFromAPIFields(
 		// 		)
 		// 	}
 		// }
-		fieldCfg := &util.MapFieldConfig{
+		fieldCfg := &MapFieldConfig{
 			Source:       field.Source,
 			ExpectedType: field.Type,
 			DefaultValue: field.Default,
@@ -148,7 +177,8 @@ func (h *MapInputHandler) validateMap(
 				}
 			case []any:
 				for _, item := range v {
-					if err := h.validateMap(item.(map[string]any), field.Nested); err != nil {
+					err := h.validateMap(item.(map[string]any), field.Nested)
+					if err != nil {
 						return fmt.Errorf("field %q: %w", field.APIName, err)
 					}
 				}
@@ -160,7 +190,14 @@ func (h *MapInputHandler) validateMap(
 		}
 		// For non-object fields, run the validation function.
 		if field.Validate != nil {
-			validate := h.getValidator().MustFromRules(field.Validate)
+			validate, err := h.getValidator().FromRules(field.Validate)
+			if err != nil {
+				return fmt.Errorf(
+					"validation rule error for field %q: %w",
+					field.APIName,
+					err,
+				)
+			}
 			if err := validate(val); err != nil {
 				return fmt.Errorf(
 					"validation error for field %q: %w", field.APIName, err,

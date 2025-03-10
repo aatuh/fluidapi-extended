@@ -13,209 +13,78 @@ type ConnFn func() (database.DB, error)
 type GetterFactoryFn[Entity database.Getter] func() Entity
 
 // ReaderRepo defines retrieval-related operations.
-type ReaderRepo[T database.Getter] interface {
+type ReaderRepo[Entity database.Getter] interface {
 	// GetOne retrieves a single record from the DB.
 	GetOne(
 		preparer database.Preparer,
-		entityFactoryFn GetterFactoryFn[T],
+		entityFactoryFn GetterFactoryFn[Entity],
 		getOptions *database.GetOptions,
-	) (T, error)
+	) (Entity, error)
 
 	// GetMany retrieves multiple records from the DB.
 	GetMany(
 		preparer database.Preparer,
-		entityFactoryFn GetterFactoryFn[T],
+		entityFactoryFn GetterFactoryFn[Entity],
 		getOptions *database.GetOptions,
-	) ([]T, error)
+	) ([]Entity, error)
 
 	// Count returns a record count.
 	Count(
 		preparer database.Preparer,
 		selectors database.Selectors,
 		page *database.Page,
-		entityFactoryFn GetterFactoryFn[T],
+		entityFactoryFn GetterFactoryFn[Entity],
 	) (int, error)
 }
 
-// DefaultReaderRepo is a concrete implementation of ReaderRepo.
-type DefaultReaderRepo[T database.Getter] struct {
-	QueryBuilder database.QueryBuilder
-	ErrorChecker database.ErrorChecker
-}
-
-// NewDefaultReaderRepo returns a new DefaultReaderRepo.
-func NewDefaultReaderRepo[T database.Getter](
-	queryBuilder database.QueryBuilder,
-	errorChecker database.ErrorChecker,
-) *DefaultReaderRepo[T] {
-	return &DefaultReaderRepo[T]{
-		QueryBuilder: queryBuilder,
-		ErrorChecker: errorChecker,
-	}
-}
-
-// GetOne retrieves a single record from the DB.
-func (r *DefaultReaderRepo[T]) GetOne(
-	preparer database.Preparer,
-	entityFactoryFn GetterFactoryFn[T],
-	getOptions *database.GetOptions,
-) (T, error) {
-	return database.Get(
-		preparer,
-		getOptions,
-		entityFactoryFn,
-		r.QueryBuilder,
-		r.ErrorChecker,
-	)
-}
-
-// GetMany retrieves multiple records from the DB.
-func (r *DefaultReaderRepo[T]) GetMany(
-	preparer database.Preparer,
-	entityFactoryFn GetterFactoryFn[T],
-	getOptions *database.GetOptions,
-) ([]T, error) {
-	return database.GetMany(
-		preparer,
-		getOptions,
-		entityFactoryFn,
-		r.QueryBuilder,
-		r.ErrorChecker,
-	)
-}
-
-// Count returns a record count.
-func (r *DefaultReaderRepo[T]) Count(
-	preparer database.Preparer,
-	selectors database.Selectors,
-	page *database.Page,
-	entityFactoryFn GetterFactoryFn[T],
-) (int, error) {
-	return database.Count(
-		preparer,
-		&database.CountOptions{
-			Selectors: selectors,
-			Page:      page,
-		},
-		entityFactoryFn,
-		r.QueryBuilder,
-		r.ErrorChecker,
-	)
-}
-
 // MutatorRepo defines mutation-related operations.
-type MutatorRepo[T database.Mutator] interface {
-	Insert(preparer database.Preparer, mutator T) (T, error)
+type MutatorRepo[Entity database.Mutator] interface {
+	Insert(preparer database.Preparer, mutator Entity) (Entity, error)
 	Update(
 		preparer database.Preparer,
-		updater T,
+		updater Entity,
 		selectors database.Selectors,
-		updateFields database.UpdateFields,
+		updates database.Updates,
 	) (int64, error)
 	Delete(
 		preparer database.Preparer,
-		deleter T,
+		deleter Entity,
 		selectors database.Selectors,
 		deleteOpts *database.DeleteOptions,
 	) (int64, error)
 }
 
-// DefaultMutatorRepo is the concrete implementation for mutation
-// operations.
-type DefaultMutatorRepo[T database.Mutator] struct {
-	QueryBuilder database.QueryBuilder
-	ErrorChecker database.ErrorChecker
-}
+// RawQueryer defines generic methods for executing raw queries and commands.
+type RawQueryer interface {
+	// Exec executes a query using a prepared statement that does not return
+	// rows.
+	Exec(
+		preparer database.Preparer, query string, parameters []any,
+	) (database.Result, error)
 
-// NewDefaultMutatorRepo returns a new DefaultMutatorRepo.
-func NewDefaultMutatorRepo[T database.Mutator](
-	queryBuilder database.QueryBuilder,
-	errorChecker database.ErrorChecker,
-) *DefaultMutatorRepo[T] {
-	return &DefaultMutatorRepo[T]{
-		QueryBuilder: queryBuilder,
-		ErrorChecker: errorChecker,
-	}
-}
+	// ExecRaw executes a query directly on the DB without explicit preparation.
+	ExecRaw(
+		db database.DB, query string, parameters []any,
+	) (database.Result, error)
 
-// Insert inserts a record into the DB.
-func (r *DefaultMutatorRepo[T]) Insert(
-	preparer database.Preparer, mutator T,
-) (T, error) {
-	_, err := database.Insert(preparer, mutator, r.QueryBuilder, r.ErrorChecker)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return mutator, nil
-}
+	// Query prepares and executes a query that returns rows. Returns both the
+	// rows and the statement. The caller is responsible for closing both.
+	Query(
+		preparer database.Preparer, query string, parameters []any,
+	) (database.Rows, database.Stmt, error)
 
-// Update performs the DB update operation.
-func (r *DefaultMutatorRepo[T]) Update(
-	preparer database.Preparer,
-	updater T,
-	selectors database.Selectors,
-	updateFields database.UpdateFields,
-) (int64, error) {
-	return database.Update(
-		preparer,
-		updater,
-		selectors,
-		updateFields,
-		r.QueryBuilder,
-		r.ErrorChecker,
-	)
-}
-
-// Delete performs the DB delete operation.
-func (r *DefaultMutatorRepo[T]) Delete(
-	preparer database.Preparer,
-	deleter T,
-	selectors database.Selectors,
-	deleteOpts *database.DeleteOptions,
-) (int64, error) {
-	return database.Delete(
-		preparer,
-		deleter,
-		selectors,
-		deleteOpts,
-		r.QueryBuilder,
-		r.ErrorChecker,
-	)
+	// QueryRaw executes a query directly on the DB without preparation and
+	// returns rows. The caller is responsible for closing the returned rows.
+	QueryRaw(db database.DB, query string, parameters []any,
+	) (database.Rows, error)
 }
 
 // TxManager is an interface for transaction management.
-type TxManager[T any] interface {
+type TxManager[Entity any] interface {
+	// WithTransaction wraps a function call in a DB transaction.
 	WithTransaction(
 		ctx context.Context,
 		connFn ConnFn,
-		callback func(ctx context.Context, tx database.Tx) (T, error),
-	) (T, error)
-}
-
-// DefaultTxManager is the default transaction manager.
-type DefaultTxManager[T any] struct{}
-
-// NewDefaultTxManager returns a new DefaultTxManager.
-func NewDefaultTxManager[T any]() *DefaultTxManager[T] {
-	return &DefaultTxManager[T]{}
-}
-
-// WithTransaction wraps a function call in a DB transaction.
-func (t *DefaultTxManager[T]) WithTransaction(
-	ctx context.Context,
-	connFn ConnFn,
-	callback func(ctx context.Context, tx database.Tx) (T, error),
-) (T, error) {
-	conn, err := connFn()
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return database.Transaction(ctx, tx, callback)
+		callback func(ctx context.Context, tx database.Tx) (Entity, error),
+	) (Entity, error)
 }

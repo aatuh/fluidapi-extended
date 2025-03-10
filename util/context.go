@@ -5,15 +5,21 @@ import (
 	"sync"
 )
 
+// DataKey is a unique key for storing custom data in the context.
 type DataKey int
 
 var (
+	// base is the base value for generating unique data keys.
 	base DataKey = 0
+
+	// lock is used to synchronize access to base.
 	lock sync.Mutex
 
+	// mainDataKey is a unique key for storing custom data in the context.
 	mainDataKey = NewDataKey()
 )
 
+// contextData is a map of custom data stored in the context.
 type contextData struct {
 	data sync.Map
 }
@@ -22,7 +28,7 @@ type contextData struct {
 // It is used to create a unique key for storing custom context data.
 //
 // Returns:
-// - The next data key value.
+//   - The next data key value.
 func NewDataKey() DataKey {
 	lock.Lock()
 	defer lock.Unlock()
@@ -33,10 +39,10 @@ func NewDataKey() DataKey {
 // NewContext initializes a new context with an empty contextData map.
 //
 // Parameters:
-// - fromCtx: The context from which the new context is derived.
+//   - fromCtx: The context from which the new context is derived.
 //
 // Returns:
-// - A new context with an initialized custom data map.
+//   - A new context with an initialized custom data map.
 func NewContext(fromCtx context.Context) context.Context {
 	return context.WithValue(fromCtx, mainDataKey, &contextData{})
 }
@@ -60,45 +66,37 @@ func GetContextValue[T any](ctx context.Context, key any, returnOnNull T) T {
 	if !ok {
 		return returnOnNull
 	}
-
 	value, exists := cd.data.Load(key)
 	if !exists {
 		return returnOnNull
 	}
-
 	typedValue, isType := value.(T)
 	if !isType {
 		return returnOnNull
 	}
-
 	return typedValue
 }
 
 // SetContextValue sets a value in the custom data of the context for the
-// provided key.
+// provided key. It panics if the key is nil or if the custom context is not
+// set.
 //
 // Parameters:
-// - ctx: The context in which to set the value.
-// - key: The key for which to set the value.
-// - data: The value to set in the context.
+//   - ctx: The context in which to set the value.
+//   - key: The key for which to set the value.
+//   - data: The value to set in the context.
 //
 // Returns:
-// - The updated context.
-//
-// Panics:
-// - If the key is nil or if the custom context is not set.
+//   - The updated context.
 func SetContextValue(ctx context.Context, key any, data any) context.Context {
 	if key == nil {
 		panic("set context value: key cannot be nil")
 	}
-
 	cd, ok := getContextData(ctx)
 	if !ok {
 		panic("set context value: no custom context set in request")
 	}
-
 	cd.data.Store(key, data)
-
 	return ctx
 }
 

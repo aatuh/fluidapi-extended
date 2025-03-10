@@ -19,78 +19,104 @@ const (
 	tagCookies = "cookies"
 )
 
-// ParsedInput represents the parsed input data.
-type ParsedInput struct {
-	URLParameters map[string]any    // URL parameters for the request.
-	Headers       map[string]string // HTTP headers to include in the request.
-	Cookies       []http.Cookie     // Cookies to include in the request.
-	Body          map[string]any    // Request body data.
-}
-
 // ParseInput parses the input struct and returns the parsed data. It will
 // populate the URL parameters, headers, cookies, and body based on the
 // struct tags. E.g. the struct field `source: url` will be placed in the URL.
 //
+// Example:
+//
+//	type MyInput struct {
+//	    ID   int    `json:"id" source:"url"`
+//	    Name string `json:"name"`
+//	}
+//	input := &MyInput{ID: 42, Name: "example"}
+//	data, err := ParseInput("GET", input)
+//
+// Parameters:
 //   - method: The HTTP method for the request.
-//   - input: The input struct to parse.
-func ParseInput(method string, input any) (*ParsedInput, error) {
+//   - input: The input struct or pointer to a struct to parse.
+//
+// Returns:
+//   - *RequestData: The parsed request data.
+//   - error: An error if parsing fails.
+func ParseInput(method string, input any) (*RequestData, error) {
 	if input == nil {
-		return nil, fmt.Errorf("parsed input is nil")
+		return nil, fmt.Errorf("ParseInput: input cannot be nil")
+	}
+	val := reflect.ValueOf(input)
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Struct {
+		return nil, fmt.Errorf(
+			"ParseInput: input must be a pointer to a struct",
+		)
 	}
 
-	// Initialize maps and slices for parsed data
-	headers := make(map[string]string)
-	cookies := make([]http.Cookie, 0)
-	urlParameters := make(map[string]any)
-	body := make(map[string]any)
-
-	// Extract values from the input struct and process them based on their tags
+	requestData := NewRequestData()
 	inputVal := reflect.ValueOf(input).Elem()
 	inputType := inputVal.Type()
 
-	for i := 0; i < inputVal.NumField(); i++ {
-		field := inputVal.Field(i)
-		fieldInfo := inputType.Field(i)
-		err := processField(
-			field,
-			fieldInfo,
-			determineDefaultPlacement(method),
-			headers,
-			&cookies,
-			urlParameters,
-			body,
+	// Iterate over the fields of the input struct
+	for i := range inputVal.NumField() {
+		err := requestData.PlaceField(
+			inputVal.Field(i), inputType.Field(i), method,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf(
+				"processField: error processing field: %v", err,
+			)
 		}
 	}
-
-	return &ParsedInput{
-		URLParameters: urlParameters,
-		Headers:       headers,
-		Cookies:       cookies,
-		Body:          body,
-	}, nil
+	return requestData, nil
 }
 
-// ConstructURL returns the full URL with query parameters.
-//   - host: The host server to send the request to.
-//   - path: The endpoint URL path.
-//   - params: The query parameters as a string.
-func ConstructURL(host string, path string, params string) string {
-	url := fmt.Sprintf("%s%s", host, path)
+// RequestData represents request data.
+type RequestData struct {
+	URLParameters map[string]any
+	Headers       map[string]string
+	Cookies       []http.Cookie
+	Body          map[string]any
+}
 
-	// Return the base URL if there are no URL parameters
-	if len(params) == 0 {
-		return url
+// NewRequestData returns a new instance of RequestData.
+func NewRequestData() *RequestData {
+	return &RequestData{
+		URLParameters: make(map[string]any),
+		Headers:       make(map[string]string),
+		Cookies:       make([]http.Cookie, 0),
+		Body:          make(map[string]any),
 	}
-
-	return fmt.Sprintf("%s?%s", url, params)
 }
 
-// determineDefaultPlacement determines the default placement for a field based
-// on the HTTP method.
-func determineDefaultPlacement(method string) string {
+// PlaceField places the field value in the appropriate part of the request
+// data. It will modify the RequestData object data in-place.
+//
+// Parameters:
+//   - field: The field value to process.
+//   - fieldInfo: The field information.
+//   - method: The HTTP method for the request.
+//
+// Returns:
+//   - error: An error if processing fails.
+func (d *RequestData) PlaceField(
+	field reflect.Value, fieldInfo reflect.StructField, method string,
+) error {
+	placement := fieldInfo.Tag.Get(sourceTag)
+	if placement == "" {
+		placement = d.defaultPlacement(method)
+	}
+	fieldName := d.determineFieldName(
+		fieldInfo.Tag.Get(jsonTag), fieldInfo.Name,
+	)
+	if fieldName == "" {
+		return fmt.Errorf(
+			"ProcessField: json tag cannot be empty for field %s",
+			fieldInfo.Name,
+		)
+	}
+	return d.placeFieldValue(placement, fieldName, d.fieldValue(field))
+}
+
+// defaultPlacement uses the HTTP method to determine the default placement.
+func (d *RequestData) defaultPlacement(method string) string {
 	switch method {
 	case http.MethodGet:
 		return tagURL
@@ -101,46 +127,20 @@ func determineDefaultPlacement(method string) string {
 	}
 }
 
-// processField processes a field of the input struct based on its tags.
-func processField(
-	field reflect.Value,
-	fieldInfo reflect.StructField,
-	defaultPlacement string,
-	headers map[string]string,
-	cookies *[]http.Cookie,
-	urlParameters map[string]any,
-	body map[string]any,
-) error {
-	// Determine field value placement in the request
-	placement := fieldInfo.Tag.Get(sourceTag)
-	if placement == "" {
-		placement = defaultPlacement
-	}
-
-	// Place the field value in the appropriate map or slice
-	return placeFieldValue(
-		placement,
-		determineFieldName(fieldInfo.Tag.Get(jsonTag), fieldInfo.Name),
-		extractFieldValue(field),
-		headers,
-		cookies,
-		urlParameters,
-		body,
-	)
-}
-
 // determineFieldName determines the field name to use in the request based on
 // the JSON tag and the field name.
-func determineFieldName(jsonTag string, fieldName string) string {
-	jsonFieldName := strings.Split(jsonTag, ",")[0]
-	if jsonFieldName == "" {
-		jsonFieldName = fieldName
+func (d *RequestData) determineFieldName(
+	jsonTag string, fieldName string,
+) string {
+	json := strings.Split(jsonTag, ",")[0]
+	if json == "" {
+		json = fieldName
 	}
-	return jsonFieldName
+	return json
 }
 
-// extractFieldValue extracts the field value based on its type.
-func extractFieldValue(field reflect.Value) any {
+// fieldValue extracts the field value based on its type.
+func (d *RequestData) fieldValue(field reflect.Value) any {
 	switch field.Kind() {
 	case reflect.Bool:
 		return field.Bool()
@@ -157,31 +157,24 @@ func extractFieldValue(field reflect.Value) any {
 	}
 }
 
-// placeFieldValue places the field value in the appropriate map or slice based
-// on its placement.
-func placeFieldValue(
-	placement string,
-	jsonFieldName string,
-	value any,
-	headers map[string]string,
-	cookies *[]http.Cookie,
-	urlParameters map[string]any,
-	body map[string]any,
+// placeFieldValue places the field value in the appropriate map or slice.
+func (d *RequestData) placeFieldValue(
+	placement string, field string, value any,
 ) error {
 	switch placement {
 	case tagURL:
-		urlParameters[jsonFieldName] = value
+		d.URLParameters[field] = value
 	case tagBody:
-		body[jsonFieldName] = value
+		d.Body[field] = value
 	case tagHeader, tagHeaders:
-		headers[jsonFieldName] = fmt.Sprintf("%v", value)
+		d.Headers[field] = fmt.Sprintf("%v", value)
 	case tagCookie, tagCookies:
-		*cookies = append(*cookies, http.Cookie{
-			Name:  jsonFieldName,
+		d.Cookies = append(d.Cookies, http.Cookie{
+			Name:  field,
 			Value: fmt.Sprintf("%v", value),
 		})
 	default:
-		return fmt.Errorf("invalid source tag: %s", placement)
+		return fmt.Errorf("placeFieldValue: invalid source tag: %s", placement)
 	}
 	return nil
 }

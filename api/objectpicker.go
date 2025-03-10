@@ -1,4 +1,4 @@
-package util
+package api
 
 import (
 	"bytes"
@@ -12,11 +12,11 @@ import (
 	"github.com/pakkasys/fluidapi/core"
 )
 
+// InvalidInputError represents an invalid input error.
 var InvalidInputError = core.NewAPIError("INVALID_INPUT")
 
+// Constants for input sources.
 const (
-	sourceTag     = "source"
-	structTag     = "json"
 	sourceURL     = "url"
 	sourceBody    = "body"
 	sourceHeader  = "header"
@@ -25,8 +25,9 @@ const (
 	sourceCookies = "cookies"
 )
 
-type BodyData map[string]any
-type URLData map[string]any
+// bodyData and urlData are aliases for map[string]any
+type bodyData map[string]any
+type urlData map[string]any
 
 // URLDecoder interface for decoding URL values.
 type URLDecoder interface {
@@ -53,6 +54,13 @@ type ObjectPicker struct {
 }
 
 // NewObjectPicker returns a new ObjectPicker.
+//
+// Parameters:
+//   - urlDecoder: The URL decoder.
+//   - conversionMap: A map of conversion functions.
+//
+// Returns:
+//   - *ObjectPicker: The new ObjectPicker.
 func NewObjectPicker(
 	urlDecoder URLDecoder, conversionMap map[string]func(any) any,
 ) *ObjectPicker {
@@ -66,6 +74,14 @@ func NewObjectPicker(
 // MapFieldConfig. It supports both nested and flat extraction.
 // If a source is set at a higher (parent) level, then child fields will use
 // that source.
+//
+// Parameters:
+//   - r: The HTTP request.
+//   - config: The MapFieldConfig.
+//
+// Returns:
+//   - map[string]any: The extracted map.
+//   - error: Any error that occurred during processing.
 func (o *ObjectPicker) PickMap(
 	r *http.Request, config *MapFieldConfig,
 ) (map[string]any, error) {
@@ -101,8 +117,8 @@ func (o *ObjectPicker) getValueFromSource(
 	r *http.Request,
 	field string,
 	source string,
-	urlData URLData,
-	bodyData BodyData,
+	urlData urlData,
+	bodyData bodyData,
 ) any {
 	switch source {
 	case sourceURL:
@@ -130,7 +146,7 @@ func (o *ObjectPicker) getValueFromSource(
 }
 
 // bodyToMap decodes the request body (if any) into a map.
-func (o *ObjectPicker) bodyToMap(r *http.Request) (BodyData, error) {
+func (o *ObjectPicker) bodyToMap(r *http.Request) (bodyData, error) {
 	body, err := o.getBody(r)
 	if err != nil {
 		return nil, err
@@ -139,7 +155,7 @@ func (o *ObjectPicker) bodyToMap(r *http.Request) (BodyData, error) {
 		return nil, nil
 	}
 
-	var m BodyData
+	var m bodyData
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber() // to preserve numeric precision
 	if err = decoder.Decode(&m); err != nil {
@@ -171,8 +187,8 @@ func (o *ObjectPicker) extractMap(
 	config *MapFieldConfig,
 	parentSource string,
 	r *http.Request,
-	urlData URLData,
-	bodyData BodyData,
+	urlData urlData,
+	bodyData bodyData,
 ) map[string]any {
 	res := make(map[string]any)
 	if config.Fields == nil {
@@ -270,7 +286,6 @@ func (o *ObjectPicker) extractMap(
 }
 
 // extractMapFromRaw applies nested config on an already parsed raw map.
-
 func (o *ObjectPicker) extractMapFromRaw(
 	raw map[string]any, config *MapFieldConfig, parentSource string,
 ) map[string]any {

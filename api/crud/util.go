@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/mitchellh/mapstructure"
+	"github.com/pakkasys/fluidapi-extended/api"
 	"github.com/pakkasys/fluidapi-extended/api/types"
-	"github.com/pakkasys/fluidapi-extended/middleware"
 	"github.com/pakkasys/fluidapi/endpoint"
 )
 
@@ -31,7 +31,7 @@ const (
 //
 // Example:
 //
-//	expectedErrors := middleware.ExpectedErrors{
+//	expectedErrors := api.ExpectedErrors{
 //	    {
 //	        ID:       "error_id",
 //	        MaskedID: "masked_id",
@@ -46,9 +46,9 @@ const (
 //	    },
 //	}
 func CreateErrorMapping(
-	expectedErrors middleware.ExpectedErrors,
-) map[string]middleware.ExpectedError {
-	mappedErrors := map[string]middleware.ExpectedError{}
+	expectedErrors api.ExpectedErrors,
+) map[string]api.ExpectedError {
+	mappedErrors := map[string]api.ExpectedError{}
 	for i := range expectedErrors {
 		mappedErrors[expectedErrors[i].MaskedID] = expectedErrors[i]
 	}
@@ -378,7 +378,7 @@ func genericUpdateAPIFields(
 ) types.APIFields {
 	return types.APIFields{
 		selectorFieldsEntry(selectableAPIFields, predicates),
-		updateFieldsEntry(updatableAPIFields),
+		updatesEntry(updatableAPIFields),
 	}
 }
 
@@ -535,26 +535,26 @@ func pageFieldEntry() types.APIField {
 	}
 }
 
-// updateFieldsEntry creates an APIField for updating fields.
-func updateFieldsEntry(from types.APIFields) types.APIField {
+// updatesEntry creates an APIField for updating fields.
+func updatesEntry(from types.APIFields) types.APIField {
 	return types.APIField{
 		APIName: FieldUpdates,
-		Nested:  updateFields(from),
+		Nested:  updates(from),
 	}
 }
 
-// updateFields creates APIFields for updating fields.
-func updateFields(from types.APIFields) types.APIFields {
+// updates creates APIFields for updating fields.
+func updates(from types.APIFields) types.APIFields {
 	var fields []types.APIField
 	for _, field := range from {
-		fields = append(fields, updateField(field))
+		fields = append(fields, update(field))
 	}
 	return fields
 
 }
 
-// updateField creates an APIField for updating fields.
-func updateField(from types.APIField) types.APIField {
+// update creates an APIField for updating fields.
+func update(from types.APIField) types.APIField {
 	return types.APIField{
 		APIName:  from.APIName,
 		DBColumn: from.DBColumn,
@@ -574,9 +574,9 @@ func countFieldEntry() types.APIField {
 // the masked error IDs in the default errors. If an error ID is not found in
 // the mapping, it panics.
 func mustApplyErrorMapping(
-	defaultErrors middleware.ExpectedErrors,
-	mappedErrors map[string]middleware.ExpectedError,
-) middleware.ExpectedErrors {
+	defaultErrors api.ExpectedErrors,
+	mappedErrors map[string]api.ExpectedError,
+) api.ExpectedErrors {
 	newDefaultErrors := defaultErrors
 	for i := range mappedErrors {
 		defaultError := defaultErrors.GetByID(mappedErrors[i].ID)

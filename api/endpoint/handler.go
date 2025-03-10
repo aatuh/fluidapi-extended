@@ -5,8 +5,7 @@ import (
 	"net/http"
 
 	"github.com/mitchellh/mapstructure"
-	"github.com/pakkasys/fluidapi-extended/middleware"
-	"github.com/pakkasys/fluidapi-extended/util"
+	"github.com/pakkasys/fluidapi-extended/api"
 	"github.com/pakkasys/fluidapi/core"
 	"github.com/pakkasys/fluidapi/endpoint"
 )
@@ -15,7 +14,7 @@ var (
 	MapToObjectDecodingError = core.NewAPIError("ERROR_DECODING_MAP_TO_OBJECT")
 )
 
-type LoggerFactoryFn func(r *http.Request) util.ILogger
+type LoggerFactoryFn func(r *http.Request) api.ILogger
 
 // EndpointHandler represents an endpoint with customizable middleware.
 type EndpointHandler[Input any] struct {
@@ -26,8 +25,9 @@ type EndpointHandler[Input any] struct {
 	handlerLogic func(
 		w http.ResponseWriter, r *http.Request, i *Input,
 	) (any, error)
-	expectedErrors  []middleware.ExpectedError
-	loggerFactoryFn func(r *http.Request) util.ILogger
+	expectedErrors  []api.ExpectedError
+	loggerFactoryFn func(r *http.Request) api.ILogger
+	systemId        string
 }
 
 // InputHandler defines how to process the request input.
@@ -44,8 +44,9 @@ func NewEndpointHandler[Input any](
 	handlerLogic func(
 		w http.ResponseWriter, r *http.Request, i *Input,
 	) (any, error),
-	expectedErrors []middleware.ExpectedError,
+	expectedErrors []api.ExpectedError,
 	loggerFactoryFn LoggerFactoryFn,
+	systemId string,
 ) *EndpointHandler[Input] {
 	return &EndpointHandler[Input]{
 		url:          url,
@@ -59,6 +60,7 @@ func NewEndpointHandler[Input any](
 		},
 		expectedErrors:  expectedErrors,
 		loggerFactoryFn: loggerFactoryFn,
+		systemId:        systemId,
 	}
 }
 
@@ -70,24 +72,24 @@ func (h *EndpointHandler[Input]) Handle(
 ) {
 	dataMap, err := h.inputHandler.Handle(w, r)
 	if err != nil {
-		h.handleError(w, r, err, h.expectedErrors)
+		h.handleError(w, r, err, h.expectedErrors, h.systemId)
 		return
 	}
 
 	blankInput := h.inputFactory()
 	input, err := mapToObject(dataMap, &blankInput)
 	if err != nil {
-		h.handleError(w, r, err, h.expectedErrors)
+		h.handleError(w, r, err, h.expectedErrors, h.systemId)
 		return
 	}
 
 	out, err := h.handlerLogic(w, r, input)
 	if err != nil {
-		h.handleError(w, r, err, h.expectedErrors)
+		h.handleError(w, r, err, h.expectedErrors, h.systemId)
 		return
 	}
 
-	h.handleOutput(w, r, out, nil, http.StatusOK)
+	h.handleOutput(w, r, out, nil, http.StatusOK, h.systemId)
 }
 
 // Build constructs the endpoint definition using the middleware stack.
@@ -124,19 +126,19 @@ func (h *EndpointHandler[Input]) handleError(
 	w http.ResponseWriter,
 	r *http.Request,
 	err error,
-	expectedErrs []middleware.ExpectedError,
+	expectedErrs []api.ExpectedError,
+	systemId string,
 ) {
-	statusCode, outError := middleware.ErrorHandler{}.Handle(err, expectedErrs)
+	statusCode, outError := api.NewErrorHandler(expectedErrs).Handle(err)
+	logMsg := fmt.Sprintf(
+		"Error, status: %d, err: %s, out: %s", statusCode, err, outError,
+	)
 	if statusCode >= http.StatusInternalServerError {
-		h.loggerFactoryFn(r).Error(fmt.Sprintf(
-			"Error, status: %d, err: %s, out: %s", statusCode, err, outError,
-		))
+		h.loggerFactoryFn(r).Error(logMsg)
 	} else {
-		h.loggerFactoryFn(r).Trace(fmt.Sprintf(
-			"Error, status: %d, err: %s, out: %s", statusCode, err, outError,
-		))
+		h.loggerFactoryFn(r).Trace(logMsg)
 	}
-	h.handleOutput(w, r, nil, outError, statusCode)
+	h.handleOutput(w, r, nil, outError, statusCode, systemId)
 }
 
 // handleOutput processes and writes the endpoint response.
@@ -146,10 +148,9 @@ func (h *EndpointHandler[Input]) handleOutput(
 	out any,
 	outputError error,
 	statusCode int,
+	systemId string,
 ) {
-	output := util.Output{
-		LoggerFn: h.loggerFactoryFn,
-	}
+	output := api.NewJSONOutput(h.loggerFactoryFn, systemId)
 	if err := output.Create(w, r, out, outputError, statusCode); err != nil {
 		if h.loggerFactoryFn != nil {
 			h.loggerFactoryFn(r).Error("Output error: %s", err)

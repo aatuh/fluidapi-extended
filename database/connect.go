@@ -1,4 +1,4 @@
-package util
+package database
 
 import (
 	"time"
@@ -6,13 +6,18 @@ import (
 	"github.com/pakkasys/fluidapi/database"
 )
 
-// NewDefaultTCPConfig returns a connection Config with default
+// NewDefaultMySQLTCPConfig returns a connection Config with default
 // settings for TCP MySQL connections.
-func NewDefaultTCPConfig(
-	user string,
-	password string,
-	db string,
-	driver string,
+//
+// Parameters:
+//   - user: The MySQL username.
+//   - password: The MySQL password.
+//   - db: The MySQL database name.
+//
+// Returns:
+//   - A ConnectConfig with default settings for MySQL TCP connections.
+func NewDefaultMySQLTCPConfig(
+	user string, password string, db string,
 ) *database.ConnectConfig {
 	return &database.ConnectConfig{
 		User:            user,
@@ -25,20 +30,29 @@ func NewDefaultTCPConfig(
 		ConnMaxIdleTime: 5 * time.Minute,
 		MaxOpenConns:    25,
 		MaxIdleConns:    5,
-		Driver:          driver,
-		DSNFormat:       "", // If empty, DSN() uses default building for MySQL
+		Driver:          database.MySQL,
+		DSNFormat:       "", // If empty, DSN() uses default string.
 	}
 }
 
-// NewDefaultUnixConfig returns a connection Config with default
+// NewDefaultMySQLUnixConfig returns a connection Config with default
 // settings for Unix socket MySQL connections.
-func NewDefaultUnixConfig(
+//
+// Parameters:
+//   - user: The MySQL username.
+//   - password: The MySQL password.
+//   - db: The MySQL database name.
+//   - socketDirectory: The directory where the socket file is located.
+//   - socketName: The name of the socket file.
+//
+// Returns:
+//   - A ConnectConfig with default settings for MySQL Unix socket connections.
+func NewDefaultMySQLUnixConfig(
 	user string,
 	password string,
 	db string,
 	socketDirectory string,
 	socketName string,
-	driver string,
 ) *database.ConnectConfig {
 	return &database.ConnectConfig{
 		User:            user,
@@ -51,14 +65,20 @@ func NewDefaultUnixConfig(
 		ConnMaxIdleTime: 5 * time.Minute,
 		MaxOpenConns:    25,
 		MaxIdleConns:    5,
-		Driver:          driver,
-		DSNFormat:       "", // If empty, DSN() uses default building
+		Driver:          database.MySQL,
+		DSNFormat:       "", // If empty, DSN() uses default string.
 	}
 }
 
 // NewDefaultSQLiteConfig returns a connection Config with default
 // settings for SQLite. The "db" argument can be a file path or
 // ":memory:" if you prefer an in-memory database.
+//
+// Parameters:
+//   - db: The SQLite database name.
+//
+// Returns:
+//   - A ConnectConfig with default settings for SQLite.
 func NewDefaultSQLiteConfig(db string) *database.ConnectConfig {
 	return &database.ConnectConfig{
 		Database:        db,

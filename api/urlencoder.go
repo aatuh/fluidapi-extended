@@ -1,4 +1,4 @@
-package util
+package api
 
 import (
 	"fmt"
@@ -24,6 +24,9 @@ const (
 type URLEncoder struct{}
 
 // NewURLEncoder returns a new URLEncoder.
+//
+// Returns:
+//   - *URLEncoder: The new URLEncoder.
 func NewURLEncoder() *URLEncoder {
 	return &URLEncoder{}
 }
@@ -64,8 +67,8 @@ func (e URLEncoder) Encode(data map[string]any) (url.Values, error) {
 //   - values: URL values
 //
 // Returns:
-//   - Decoded data as a map
-//   - Error if decoding fails
+//   - map[string]any: Decoded data
+//   - error: Error
 func (e URLEncoder) Decode(values url.Values) (map[string]any, error) {
 	return decodeURL(values)
 }
@@ -83,6 +86,19 @@ func decodeURL(values url.Values) (map[string]any, error) {
 	}
 	convertMinSlicesToRegularSlices(urlData)
 	return urlData, nil
+}
+
+// convertMinSlicesToRegularSlices converts all MinSlice instances in the map to
+// regular slices recursively.
+func convertMinSlicesToRegularSlices(data map[string]any) {
+	for key, value := range data {
+		switch v := value.(type) {
+		case *minSlice:
+			data[key] = v.toSlice()
+		case map[string]any:
+			convertMinSlicesToRegularSlices(v)
+		}
+	}
 }
 
 // encodeURL encodes an URL.
@@ -418,17 +434,4 @@ func (s *minSlice) toSlice() []any {
 		slice = append(slice, value)
 	}
 	return slice
-}
-
-// convertMinSlicesToRegularSlices converts all MinSlice instances in the map to
-// regular slices recursively.
-func convertMinSlicesToRegularSlices(data map[string]any) {
-	for key, value := range data {
-		switch v := value.(type) {
-		case *minSlice:
-			data[key] = v.toSlice()
-		case map[string]any:
-			convertMinSlicesToRegularSlices(v)
-		}
-	}
 }

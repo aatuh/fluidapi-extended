@@ -147,9 +147,9 @@ func (h *GetHandler[Entity, Input, Output]) Handle(
 }
 
 type ParsedUpdateEndpointInput struct {
-	Selectors    database.Selectors
-	UpdateFields []database.UpdateField
-	Upsert       bool
+	Selectors database.Selectors
+	Updates   []database.Update
+	Upsert    bool
 }
 
 // Invoke and output funcs for the update endpoint.

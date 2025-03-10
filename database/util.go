@@ -1,4 +1,4 @@
-package crud
+package database
 
 import (
 	"fmt"
@@ -7,9 +7,6 @@ import (
 
 	"github.com/pakkasys/fluidapi/database"
 )
-
-// EntityOption defines a functional option for configuring an entity.
-type EntityOption[T any] func(T)
 
 // MustGetSelector creates a new Selector with the given parameters. It panics
 // if the provided value's type is not assignable to the expected type.
@@ -29,15 +26,13 @@ func MustGetSelector(
 	}
 }
 
-// MustGetUpdate creates a new UpdateField with the given parameters. It panics
+// MustGetUpdate creates a new Update with the given parameters. It panics
 // if the provided value's type is not assignable to the expected type.
 func MustGetUpdate(
-	entity any,
-	fieldName string,
-	value any,
-) *database.UpdateField {
+	entity any, fieldName string, value any,
+) *database.Update {
 	mustValidateDBMapping(entity, fieldName, value)
-	return &database.UpdateField{
+	return &database.Update{
 		Field: fieldName,
 		Value: value,
 	}
@@ -70,6 +65,13 @@ func MustGetUpdate(
 //   - If the field is not found in the object, or if the provided value's type
 //     is not assignable (even after pointer adjustments), the function will
 //     panic.
+//
+// Parameters:
+//   - field: The field to set.
+//   - value: The value to set.
+//
+// Returns:
+//   - EntityOption[T]: The entity-specific option.
 func WithOption[T any](field string, value any) EntityOption[T] {
 	return func(t T) {
 		v := reflect.ValueOf(t).Elem()
@@ -202,10 +204,11 @@ func getDBMapping(obj any) map[string]reflect.Type {
 	return mapping
 }
 
-// mustBeAssignable checks if a provided value is assignable to the expected type.
-// It handles the common case where the endpoint input may be a pointer while the
-// expected (database) type is a non-pointer. Specifically, if the provided value
-// is a non-nil pointer, its underlying element type is checked against the expected type.
+// mustBeAssignable checks if a provided value is assignable to the expected
+// type. It handles the common case where the endpoint input may be a pointer
+// while the expected (database) type is a non-pointer. Specifically, if the
+// provided value is a non-nil pointer, its underlying element type is checked
+// against the expected type.
 //
 // Limitations:
 //   - Only a single level of pointer indirection is handled.

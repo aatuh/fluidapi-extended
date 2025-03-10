@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/pakkasys/fluidapi-extended/api"
 	"github.com/pakkasys/fluidapi-extended/api/repository"
 	"github.com/pakkasys/fluidapi-extended/client"
-	"github.com/pakkasys/fluidapi-extended/middleware"
-	"github.com/pakkasys/fluidapi-extended/util"
+	extendeddatabase "github.com/pakkasys/fluidapi-extended/database"
 	"github.com/pakkasys/fluidapi/core"
 	"github.com/pakkasys/fluidapi/database"
 	"github.com/pakkasys/fluidapi/endpoint"
@@ -56,7 +56,7 @@ type DeleteOutput struct {
 
 // Options to override default expected errors.
 type GenericEndpointOptions struct {
-	ExpectedErrors *middleware.ExpectedErrors
+	ExpectedErrors *api.ExpectedErrors
 }
 
 // Error variables.
@@ -65,45 +65,73 @@ var (
 	NeedAtLeastOneSelectorError = core.NewAPIError("NEED_AT_LEAST_ONE_SELECTOR")
 )
 
-var GenericErrors = middleware.ExpectedErrors{
-	{ID: MapToObjectDecodingError.ID, Status: http.StatusBadRequest, PublicData: true},
-	{ID: util.InvalidInputError.ID, Status: http.StatusBadRequest, PublicData: true},
-	{ID: ValidationError.ID, Status: http.StatusBadRequest, PublicData: true},
+type ErrorBuilder struct {
+	systemId string
+	errs     []api.ExpectedError
 }
 
-var (
-	CreateErrors = middleware.ExpectedErrors{
-		{ID: util.DuplicateEntryError.ID, Status: http.StatusBadRequest, PublicData: false},
-		{ID: util.ForeignConstraintError.ID, Status: http.StatusBadRequest, PublicData: false},
-	}.With(GenericErrors...)
+func NewErrorBuilder(systemId string) *ErrorBuilder {
+	return &ErrorBuilder{
+		systemId: systemId,
+	}
+}
 
-	GetErrors = middleware.ExpectedErrors{
+func (b *ErrorBuilder) With(errs api.ExpectedErrors) *ErrorBuilder {
+	b.errs = append(b.errs, errs...)
+	return b
+}
+
+func (b *ErrorBuilder) Build() api.ExpectedErrors {
+	return api.ExpectedErrors(b.errs).WithOrigin(b.systemId)
+}
+
+func GenericErrors() api.ExpectedErrors {
+	return []api.ExpectedError{
+		{ID: MapToObjectDecodingError.ID, Status: http.StatusBadRequest, PublicData: true},
+		{ID: api.InvalidInputError.ID, Status: http.StatusBadRequest, PublicData: true},
+		{ID: api.ValidationError.ID, Status: http.StatusBadRequest, PublicData: true},
+	}
+}
+
+func CreateErrors() api.ExpectedErrors {
+	return []api.ExpectedError{
+		{ID: extendeddatabase.DuplicateEntryError.ID, Status: http.StatusBadRequest, PublicData: false},
+		{ID: extendeddatabase.ForeignConstraintError.ID, Status: http.StatusBadRequest, PublicData: false},
+	}
+}
+
+func GetErrors() api.ExpectedErrors {
+	return []api.ExpectedError{
 		{ID: endpoint.InvalidPredicateError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.PredicateNotAllowedError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.InvalidSelectorFieldError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.InvalidOrderFieldError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.MaxPageLimitExceededError.ID, Status: http.StatusBadRequest, PublicData: true},
-		{ID: util.NoRowsError.ID, Status: http.StatusNotFound, PublicData: true},
-	}.With(GenericErrors...)
+		{ID: extendeddatabase.NoRowsError.ID, Status: http.StatusNotFound, PublicData: true},
+	}
+}
 
-	UpdateErrors = middleware.ExpectedErrors{
+func UpdateErrors() api.ExpectedErrors {
+	return []api.ExpectedError{
 		{ID: endpoint.InvalidPredicateError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.InvalidSelectorFieldError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.PredicateNotAllowedError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: NeedAtLeastOneSelectorError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: NeedAtLeastOneUpdateError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.InvalidOrderFieldError.ID, Status: http.StatusBadRequest, PublicData: true},
-		{ID: util.DuplicateEntryError.ID, Status: http.StatusBadRequest, PublicData: false},
-		{ID: util.ForeignConstraintError.ID, Status: http.StatusBadRequest, PublicData: false},
-	}.With(GenericErrors...)
+		{ID: extendeddatabase.DuplicateEntryError.ID, Status: http.StatusBadRequest, PublicData: false},
+		{ID: extendeddatabase.ForeignConstraintError.ID, Status: http.StatusBadRequest, PublicData: false},
+	}
+}
 
-	DeleteErrors = middleware.ExpectedErrors{
+func DeleteErrors() api.ExpectedErrors {
+	return []api.ExpectedError{
 		{ID: endpoint.InvalidPredicateError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.InvalidSelectorFieldError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: endpoint.PredicateNotAllowedError.ID, Status: http.StatusBadRequest, PublicData: true},
 		{ID: NeedAtLeastOneSelectorError.ID, Status: http.StatusBadRequest, PublicData: true},
-	}.With(GenericErrors...)
-)
+	}
+}
 
 // GenericEndpointDefinition builds the endpoint definition for any operation.
 func GenericEndpointDefinition[Input any](
@@ -111,9 +139,10 @@ func GenericEndpointDefinition[Input any](
 	method string,
 	inputHandler InputHandler,
 	inputFactory func() Input,
-	expectedErrors middleware.ExpectedErrors,
+	expectedErrors api.ExpectedErrors,
 	invokeFn GenericInvoke[Input],
 	loggerFactoryFn LoggerFactoryFn,
+	systemId string,
 ) *EndpointHandler[Input] {
 	handler := &GenericHandler[Input]{
 		InvokeFn: invokeFn,
@@ -126,28 +155,33 @@ func GenericEndpointDefinition[Input any](
 		handler.Handle,
 		expectedErrors,
 		loggerFactoryFn,
+		systemId,
 	)
 }
 
 // SendRequest sends a request to the target host. It parses the input first.
 func SendRequest[Input any, Output any](
-	ctx context.Context, host string, url string, method string, input *Input,
-) (*client.Response[util.APIOutput[Output]], error) {
+	ctx context.Context,
+	httpClient *client.JSONClient[api.APIOutput[Output]],
+	url string,
+	method string,
+	input *Input,
+) (*client.Response[api.APIOutput[Output]], error) {
 	parsedInput, err := client.ParseInput(method, input)
 	if err != nil {
 		return nil, err
 	}
-	return SendParsedRequest[Input, Output](ctx, host, url, method, parsedInput)
+	return SendParsedRequest[Input](ctx, httpClient, url, method, parsedInput)
 }
 
 // SendParsedRequest sends a request to the target host using the parsed input.
 func SendParsedRequest[Input any, Output any](
 	ctx context.Context,
-	host string,
+	httpClient *client.JSONClient[api.APIOutput[Output]],
 	url string,
 	method string,
-	parsedInput *client.ParsedInput,
-) (*client.Response[util.APIOutput[Output]], error) {
+	parsedInput *client.RequestData,
+) (*client.Response[api.APIOutput[Output]], error) {
 	// Set options
 	opts := &client.SendOptions{
 		Headers: parsedInput.Headers,
@@ -158,7 +192,7 @@ func SendParsedRequest[Input any, Output any](
 	}
 
 	// Add query parameters to the URL
-	urlValues, err := util.NewURLEncoder().Encode(parsedInput.URLParameters)
+	urlValues, err := api.NewURLEncoder().Encode(parsedInput.URLParameters)
 	if err != nil {
 		return nil, err
 	}
@@ -172,9 +206,7 @@ func SendParsedRequest[Input any, Output any](
 	}
 
 	// Send request
-	return client.Send[util.APIOutput[Output]](
-		host, fullURL, method, opts,
-	)
+	return httpClient.Send(ctx, fullURL, method, opts)
 }
 
 // GenericCreateDefinition builds the endpoint definition for a create operation.
@@ -189,11 +221,14 @@ func GenericCreateDefinition[Input any, Entity database.Mutator](
 	loggerFactoryFn LoggerFactoryFn,
 	mutatorRepo repository.MutatorRepo[Entity],
 	txManager repository.TxManager[Entity],
+	systemId string,
 	options ...GenericEndpointOptions,
 ) *EndpointHandler[Input] {
-	expectedErrors := CreateErrors
+	var expectedErrors api.ExpectedErrors
 	if len(options) > 0 && options[0].ExpectedErrors != nil {
 		expectedErrors = *options[0].ExpectedErrors
+	} else {
+		expectedErrors = NewErrorBuilder(systemId).With(CreateErrors()).Build()
 	}
 	handler := &CreateHandler[Entity, Input]{
 		createInvokeFn: CreateInvoke[Entity],
@@ -214,6 +249,7 @@ func GenericCreateDefinition[Input any, Entity database.Mutator](
 		handler.Handle,
 		expectedErrors,
 		loggerFactoryFn,
+		systemId,
 	)
 }
 
@@ -248,6 +284,7 @@ func GenericGetDefinition[Entity database.Getter, Output any](
 	loggerFactoryFn LoggerFactoryFn,
 	readerRepo repository.ReaderRepo[Entity],
 	txManager repository.TxManager[Entity],
+	systemId string,
 ) *EndpointHandler[GetInput] {
 	parseInputFn := func(
 		input *GetInput,
@@ -277,8 +314,9 @@ func GenericGetDefinition[Entity database.Getter, Output any](
 		inputHandler,
 		func() GetInput { return GetInput{} },
 		handler.Handle,
-		GetErrors,
+		NewErrorBuilder(systemId).With(GetErrors()).Build(),
 		loggerFactoryFn,
+		systemId,
 	)
 }
 
@@ -368,6 +406,7 @@ func GenericUpdateDefinition(
 		input *UpdateInput,
 	) error,
 	loggerFactoryFn LoggerFactoryFn,
+	systemId string,
 ) *EndpointHandler[UpdateInput] {
 	parseInputFn := func(
 		input *UpdateInput,
@@ -393,8 +432,9 @@ func GenericUpdateDefinition(
 		inputHandler,
 		func() UpdateInput { return UpdateInput{} },
 		handler.Handle,
-		UpdateErrors,
+		NewErrorBuilder(systemId).With(UpdateErrors()).Build(),
 		loggerFactoryFn,
+		systemId,
 	)
 }
 
@@ -415,7 +455,7 @@ func UpdateInvoke(
 				tx,
 				entity,
 				parsedInput.Selectors,
-				parsedInput.UpdateFields,
+				parsedInput.Updates,
 			)
 			return &c, err
 		})
@@ -437,7 +477,6 @@ func ParseUpdateEndpointInput(
 		return nil, err
 	}
 	if len(dbSelectors) == 0 {
-		fmt.Println("SLSLSLSLSLSLSLS UPDATE")
 		return nil, NeedAtLeastOneSelectorError
 	}
 	dbUpdates, err := updates.ToDBUpdates(apiToDBFields)
@@ -448,9 +487,9 @@ func ParseUpdateEndpointInput(
 		return nil, NeedAtLeastOneUpdateError
 	}
 	return &ParsedUpdateEndpointInput{
-		Selectors:    dbSelectors,
-		UpdateFields: dbUpdates,
-		Upsert:       upsert,
+		Selectors: dbSelectors,
+		Updates:   dbUpdates,
+		Upsert:    upsert,
 	}, nil
 }
 
@@ -473,6 +512,7 @@ func GenericDeleteDefinition(
 		input *DeleteInput,
 	) error,
 	loggerFactoryFn LoggerFactoryFn,
+	systemId string,
 ) *EndpointHandler[DeleteInput] {
 	parseInputFn := func(
 		input *DeleteInput,
@@ -498,8 +538,9 @@ func GenericDeleteDefinition(
 		inputHandler,
 		func() DeleteInput { return DeleteInput{} },
 		handler.Handle,
-		DeleteErrors,
+		NewErrorBuilder(systemId).With(DeleteErrors()).Build(),
 		loggerFactoryFn,
+		systemId,
 	)
 }
 
@@ -542,7 +583,6 @@ func ParseDeleteEndpointInput(
 		return nil, err
 	}
 	if len(dbSelectors) == 0 {
-		fmt.Println("SLSLSLSLSLSLSLS DELETE")
 		return nil, NeedAtLeastOneSelectorError
 	}
 	dbOrders, err := orders.TranslateToDBOrders(apiToDBFields)
